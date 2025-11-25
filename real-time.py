@@ -12,6 +12,8 @@ import sensor
 from torch import nn
 import numpy as np
 from scipy.signal import find_peaks
+from processor.model import TimeSeriesLSTMClassifier
+
 
 # データ受信に使用する IP とポートを定義
 LOCAL_IP = "127.0.0.1"
@@ -29,8 +31,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # モデルファイルから static_param_control を読み込む
 model_pth = torch.load(model_path, map_location=device)
-static_param_control = model_pth['static_param_control']
+static_param_control = model_pth['static_param_control']   # ここの指定はトレーニング用コードの設計に依存する
 
+# 一旦削除
 # 静的パラメータをコンソールから入力（改善提案2）
 def input_static_parameters(static_param_control):
     static_params = {}
@@ -39,13 +42,14 @@ def input_static_parameters(static_param_control):
     for idx, param_name in enumerate(param_names):
         if static_param_control[idx]:
             if param_name == 'Sex':
-                value = input(f"请输入 {param_name} 的值 ('M' 或 'F'): ")
+                value = input(f"入力してください {param_name}  ('M' or 'F'): ")
                 value = 0 if value == 'M' else 1
             else:
-                value = float(input(f"请输入 {param_name} 的值: "))
+                value = float(input(f"入力してください {param_name} : "))
             static_params[param_name] = value
     return static_params
 
+# 一旦削除
 # 静的パラメータをテンソルに変換（改善提案2）
 def process_static_params(static_params, static_param_control):
     param_names = ['Age', 'Sex', 'Length', 'ShoeSize', 'StandNum',
@@ -55,43 +59,16 @@ def process_static_params(static_params, static_param_control):
     selected_params = [float(value) for value in selected_params]
     return torch.tensor(selected_params, dtype=torch.float32).to(device)
 
-# Transformer モデルを定義
+# 一通り動作したらモデル関数に移動する
+# LSTM モデルを定義
 def create_model(input_dim, static_input_dim, num_classes,
                  d_model=64, nhead=4, num_layers=2, dim_feedforward=128):
+    # nhead, dim_feedforward は使わなくなるが、呼び出し側との互換のために受け取っておく
 
-    class TimeSeriesTransformerClassifier(nn.Module):
-        def __init__(self, input_dim, d_model, nhead, num_layers,
-                     dim_feedforward, static_input_dim, num_classes):
-            super(TimeSeriesTransformerClassifier, self).__init__()
-            self.input_projection = nn.Linear(input_dim, d_model)
-            encoder_layer = nn.TransformerEncoderLayer(
-                d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward
-            )
-            self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-            self.static_fc = nn.Linear(static_input_dim, d_model)
-            self.fc = nn.Linear(d_model * 2, num_classes)
-            self.dropout = nn.Dropout(0.1)
-
-        def forward(self, x, static_params, attention_mask=None):
-            x = self.input_projection(x)
-            x = x.permute(1, 0, 2)  # (seq_length, batch_size, d_model) 形式へ変換
-            if attention_mask is not None:
-                src_key_padding_mask = attention_mask == 0
-            else:
-                src_key_padding_mask = None
-            transformer_output = self.dropout(
-                self.transformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
-            )
-            features = transformer_output[-1, :, :]  # 最後の時間ステップを使用
-            static_features = self.static_fc(static_params)
-            combined_features = torch.cat((features, static_features), dim=1)
-            logits = self.fc(combined_features)
-            return logits
-
-    return TimeSeriesTransformerClassifier(
-        input_dim, d_model, nhead, num_layers, dim_feedforward,
-        static_input_dim, num_classes
+    return TimeSeriesLSTMClassifier(
+        input_dim, d_model, num_layers, static_input_dim, num_classes
     )
+
 
 # 静的パラメータを入力
 static_params = input_static_parameters(static_param_control)
