@@ -1,3 +1,12 @@
+#
+#
+#
+#
+#
+
+import torch
+from torch.utils.data import Dataset
+
 class PressureSkeletonDataset(Dataset):
     def __init__(self, pressure_data, skeleton_data):
         self.pressure_data = torch.FloatTensor(pressure_data)
