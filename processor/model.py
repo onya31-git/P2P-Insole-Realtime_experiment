@@ -12,55 +12,75 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# LSTM予測モデル
-class TimeSeriesLSTMClassifier(nn.Module):
-        def __init__(self, input_dim, d_model, num_layers,
-                     static_input_dim, num_classes):
-            super(TimeSeriesLSTMClassifier, self).__init__()
+# LSTM予測用モデル
+class LSTMSkeletonRegressor(nn.Module):
+    """
+    圧力＋IMU特徴から 3D skeleton (num_joints, num_dims) を予測する LSTM モデル
+    - 入力: x (batch, seq_len, input_dim) もしくは (batch, input_dim)
+    - 出力: (batch, num_joints, num_dims)
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        d_model: int,
+        num_layers: int,
+        num_joints: int,
+        num_dims: int = 3,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.num_joints = num_joints
+        self.num_dims = num_dims
 
-            # 入力特徴量 → LSTM の隠れ次元に写像
-            self.input_projection = nn.Linear(input_dim, d_model)
+        # 入力特徴を LSTM の隠れ次元に写像
+        self.input_proj = nn.Linear(input_dim, d_model)
 
-            # LSTM 本体（batch_first=True なので (batch, seq, feat) をそのまま入れられる）
-            self.lstm = nn.LSTM(
-                input_size=d_model,
-                hidden_size=d_model,
-                num_layers=num_layers,
-                batch_first=True,
-                bidirectional=False
-            )
+        # LSTM 本体
+        self.lstm = nn.LSTM(
+            input_size=d_model,
+            hidden_size=d_model,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=False,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
 
-            # 静的特徴用の全結合
-            self.static_fc = nn.Linear(static_input_dim, d_model)
+        self.dropout = nn.Dropout(dropout)
 
-            # LSTM 出力 (d_model) + 静的特徴 (d_model) → クラス数
-            self.fc = nn.Linear(d_model * 2, num_classes)
+        # 最終隠れ状態 → (num_joints * num_dims)
+        self.fc = nn.Linear(d_model, num_joints * num_dims)
 
-            self.dropout = nn.Dropout(0.1)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (batch, seq_len, input_dim) または (batch, input_dim)
+        戻り値: (batch, num_joints, num_dims)
+        """
+        # 時系列長次元がない場合は seq_len=1 とみなす
+        if x.dim() == 2:
+            # (batch, input_dim) -> (batch, 1, input_dim)
+            x = x.unsqueeze(1)
 
-        def forward(self, x, static_params, attention_mask=None):
-            # x: (batch, seq_len, input_dim) が入ってくる前提（いまのコードのまま）
-            x = self.input_projection(x)  # (batch, seq_len, d_model)
+        # (batch, seq_len, input_dim) -> (batch, seq_len, d_model)
+        x = self.input_proj(x)
 
-            # LSTM へ（ここでは attention_mask は使わない）
-            lstm_out, (h_n, c_n) = self.lstm(x)
+        # LSTM
+        # lstm_out: (batch, seq_len, d_model)
+        lstm_out, (h_n, c_n) = self.lstm(x)
 
-            # h_n: (num_layers, batch, d_model)
-            # 最終層の隠れ状態を系列代表として使う
-            features = h_n[-1]  # (batch, d_model)
+        # 末尾の時刻の出力を使用
+        last = lstm_out[:, -1, :]  # (batch, d_model)
+        last = self.dropout(last)
 
-            # 静的特徴
-            static_features = self.static_fc(static_params)  # (batch, d_model)
+        # 全結合で (batch, num_joints * num_dims) へ
+        out = self.fc(last)
 
-            # 結合して全結合で分類
-            combined_features = torch.cat((features, static_features), dim=1)  # (batch, 2*d_model)
-            combined_features = self.dropout(combined_features)
-            logits = self.fc(combined_features)  # (batch, num_classes)
+        # (batch, num_joints, num_dims) に reshape
+        out = out.view(out.size(0), self.num_joints, self.num_dims)
 
-            return logits
-        
+        return out
 
-# YurenさんのTransformerモデル(問題あり)
+
+# puさんのTransformerモデル(分類問題用のモデルのため、骨格推定には使用することができない。)
 class TimeSeriesTransformerClassifier(nn.Module):
     def __init__(self, input_dim, d_model, nhead, num_layers, dim_feedforward, static_input_dim, num_classes):
         super(TimeSeriesTransformerClassifier, self).__init__()
@@ -84,3 +104,92 @@ class TimeSeriesTransformerClassifier(nn.Module):
         combined_features = torch.cat((features, static_features), dim=1)
         logits = self.fc(combined_features)
         return logits
+    
+class EnhancedSkeletonLoss(nn.Module):
+    def __init__(self, alpha=1.0, beta=0.1):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        
+    def forward(self, pred, target):
+        # MSE損失
+        mse_loss = F.mse_loss(pred, target)
+        
+        # 変化量の損失
+        motion_loss = F.mse_loss(
+            pred[1:] - pred[:-1],
+            target[1:] - target[:-1]
+        )
+        
+        # 加速度の損失
+        accel_loss = F.mse_loss(
+            pred[2:] + pred[:-2] - 2 * pred[1:-1],
+            target[2:] + target[:-2] - 2 * target[1:-1]
+        )
+        
+        return self.alpha * mse_loss + self.beta * (motion_loss + accel_loss)
+    
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, save_path, device):
+    best_val_loss = float('inf')
+    
+    for epoch in range(num_epochs):
+        # Training phase
+        model.train()
+        train_loss = 0.0
+        
+        for pressure, skeleton in train_loader:
+            # データをGPUに移動
+            pressure = pressure.to(device)
+            skeleton = skeleton.to(device)
+            
+            optimizer.zero_grad()
+            
+            outputs = model(pressure)
+            loss = criterion(outputs, skeleton)
+            
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+        
+        # Validation phase
+        model.eval()
+        val_loss = 0.0
+        
+        with torch.no_grad():
+            for pressure, skeleton in val_loader:
+                # データをGPUに移動
+                pressure = pressure.to(device)
+                skeleton = skeleton.to(device)
+                
+                outputs = model(pressure)
+                loss = criterion(outputs, skeleton)
+                val_loss += loss.item()
+        
+        # 平均損失の計算
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        # スケジューラのステップ
+        scheduler.step(avg_val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        print(f'Epoch {epoch+1}')
+        print(f'Training Loss: {avg_train_loss:.4f}')
+        print(f'Validation Loss: {avg_val_loss:.4f}')
+        print(f'Learning Rate: {current_lr:.6f}')
+        
+        # モデルの保存
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'best_val_loss': best_val_loss,
+            }
+            torch.save(checkpoint, save_path)
+            print(f'Model saved at epoch {epoch+1}')
+        
+        print('-' * 60)
