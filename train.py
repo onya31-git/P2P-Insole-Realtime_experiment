@@ -8,6 +8,146 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from processor.model import LSTMSkeletonRegressor, EnhancedSkeletonLoss, train_model
 from processor.dataLoader import PressureSkeletonDataset
+from pathlib import Path
+import importlib.util
+from importlib import import_module
+
+pd = None
+np = None
+train_test_split = None
+MinMaxScaler = None
+StandardScaler = None
+
+DATA_FILE_PAIRS = [
+    # #
+    # # 第三回収集データ
+    # #
+    # # 立ちっぱなし
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.20.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_152500_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_152500_right.csv'),
+    # # お辞儀
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.26.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153100_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153100_right.csv'),
+    # # 体の横の傾け
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.32.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153700_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153700_right.csv'),
+    # # 立つ座る
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.38.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154300_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154300_right.csv'),
+    # # スクワット
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.44.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154900_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154900_right.csv'),
+    # # 総合(test3)
+    # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.50.00 PM.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_155500_left.csv',
+    #  './data/20250517old_data/20241115test3/insoleSensor/20241115_155500_right.csv'),
+
+    # # 釘宮くん
+    # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 03.06.59 PM.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_152700_left.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_152700_right.csv'),
+    # # 百田くん
+    # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 03.45.00 PM.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_160501_left.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_160501_right.csv'),
+    # # # # 渡辺(me)
+    # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 04.28.00 PM.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_164800_left.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_164800_right.csv'),
+    # # にるぱむさん
+    # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 05.17.59 PM.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_173800_left.csv',
+    #  './data/20250517old_data/20241212test4/insoleSensor/20241212_173800_right.csv'),
+
+    # 新データ(test5)
+    # s1
+    (
+        './data/training_data/Skeleton/T005S001_skeleton.csv',
+        './data/training_data/Insole/T005S001_Insole_l.csv',
+        './data/training_data/Insole/T005S001_Insole_r.csv',
+    ),
+    # s2
+    (
+        './data/training_data/Skeleton/T005S002_skeleton.csv',
+        './data/training_data/Insole/T005S002_Insole_l.csv',
+        './data/training_data/Insole/T005S002_Insole_r.csv',
+    ),
+    # s3
+    (
+        './data/training_data/Skeleton/T005S003_skeleton.csv',
+        './data/training_data/Insole/T005S003_Insole_l.csv',
+        './data/training_data/Insole/T005S003_Insole_r.csv',
+    ),
+    # s4
+    (
+        './data/training_data/Skeleton/T005S004_skeleton.csv',
+        './data/training_data/Insole/T005S004_Insole_l.csv',
+        './data/training_data/Insole/T005S004_Insole_r.csv',
+    ),
+    # s5
+    (
+        './data/training_data/Skeleton/T005S005_skeleton.csv',
+        './data/training_data/Insole/T005S005_Insole_l.csv',
+        './data/training_data/Insole/T005S005_Insole_r.csv',
+    ),
+    # s6
+    (
+        './data/training_data/Skeleton/T005S006_skeleton.csv',
+        './data/training_data/Insole/T005S006_Insole_l.csv',
+        './data/training_data/Insole/T005S006_Insole_r.csv',
+    ),
+    # s7
+    (
+        './data/training_data/Skeleton/T005S007_skeleton.csv',
+        './data/training_data/Insole/T005S007_Insole_l.csv',
+        './data/training_data/Insole/T005S007_Insole_r.csv',
+    ),
+]
+
+
+def verify_dependencies():
+    required_modules = ("pandas", "numpy", "sklearn", "torch")
+    missing_modules = [module for module in required_modules if importlib.util.find_spec(module) is None]
+
+    if missing_modules:
+        missing_list = ", ".join(missing_modules)
+        raise SystemExit(
+            f"Missing required module(s): {missing_list}. "
+            "Install them with `pip install -e .` or follow the offline install steps in README.md before running `python train.py`."
+        )
+
+
+def load_dependencies():
+    global pd, np, train_test_split, MinMaxScaler, StandardScaler
+
+    pd = import_module("pandas")
+    np = import_module("numpy")
+    train_test_split = import_module("sklearn.model_selection").train_test_split
+    preprocessing = import_module("sklearn.preprocessing")
+    MinMaxScaler = preprocessing.MinMaxScaler
+    StandardScaler = preprocessing.StandardScaler
+
+
+def validate_data_files(file_pairs):
+    missing_files = []
+
+    for skeleton_file, left_file, right_file in file_pairs:
+        for file_path in (skeleton_file, left_file, right_file):
+            path = Path(file_path)
+            if not path.is_file():
+                missing_files.append(str(path))
+
+    if missing_files:
+        missing_lines = "\n  - " + "\n  - ".join(missing_files)
+        raise SystemExit(
+            "The following training data files are missing:" f"{missing_lines}\n"
+            "Place the CSVs under data/training_data (or update DATA_FILE_PAIRS) before running training."
+        )
 
 
 def preprocess_pressure_data(left_data, right_data):
@@ -138,90 +278,27 @@ def load_and_combine_data(file_pairs):
             pd.concat(all_pressure_right, ignore_index=True))
 
 def main():
-    # データの読み込み
-    data_pairs = [
-        # #
-        # # 第三回収集データ
-        # #
-        # # 立ちっぱなし
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.20.00 PM.csv',
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_152500_left.csv',
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_152500_right.csv'),
-        # # お辞儀
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.26.00 PM.csv',
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153100_left.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153100_right.csv'),
-        # # 体の横の傾け
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.32.00 PM.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153700_left.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_153700_right.csv'),
-        # # 立つ座る
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.38.00 PM.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154300_left.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154300_right.csv'),
-        # # スクワット
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.44.00 PM.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154900_left.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_154900_right.csv'),
-        #  # 総合(test3)
-        # ('./data/20250517old_data/20241115test3/Opti-track/Take 2024-11-15 03.50.00 PM.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_155500_left.csv', 
-        #  './data/20250517old_data/20241115test3/insoleSensor/20241115_155500_right.csv'),
-
-        # # 釘宮くん
-        # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 03.06.59 PM.csv',
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_152700_left.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_152700_right.csv'),
-        # # 百田くん
-        # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 03.45.00 PM.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_160501_left.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_160501_right.csv'),
-        # # # # 渡辺(me)
-        # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 04.28.00 PM.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_164800_left.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_164800_right.csv'),
-        # # にるぱむさん
-        # ('./data/20250517old_data/20241212test4/Opti-track/Take 2024-12-12 05.17.59 PM.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_173800_left.csv', 
-        #  './data/20250517old_data/20241212test4/insoleSensor/20241212_173800_right.csv')
-
-
-         # 新データ(test5)
-         # s1
-        ('./data/training_data/Skeleton/T005S001_skeleton.csv', 
-         './data/training_data/Insole/T005S001_Insole_l.csv', 
-         './data/training_data/Insole/T005S001_Insole_r.csv'),
-        # s2
-        ('./data/training_data/Skeleton/T005S002_skeleton.csv', 
-         './data/training_data/Insole/T005S002_Insole_l.csv', 
-         './data/training_data/Insole/T005S002_Insole_r.csv'),
-        # s3
-        ('./data/training_data/Skeleton/T005S003_skeleton.csv', 
-         './data/training_data/Insole/T005S003_Insole_l.csv', 
-         './data/training_data/Insole/T005S003_Insole_r.csv'),
-        # s4
-        ('./data/training_data/Skeleton/T005S004_skeleton.csv', 
-         './data/training_data/Insole/T005S004_Insole_l.csv', 
-         './data/training_data/Insole/T005S004_Insole_r.csv'),
-        # s5
-        ('./data/training_data/Skeleton/T005S005_skeleton.csv', 
-         './data/training_data/Insole/T005S005_Insole_l.csv', 
-         './data/training_data/Insole/T005S005_Insole_r.csv'),
-         # s6
-        ('./data/training_data/Skeleton/T005S006_skeleton.csv', 
-         './data/training_data/Insole/T005S006_Insole_l.csv', 
-         './data/training_data/Insole/T005S006_Insole_r.csv'),
-         # s7
-        ('./data/training_data/Skeleton/T005S007_skeleton.csv', 
-         './data/training_data/Insole/T005S007_Insole_l.csv', 
-         './data/training_data/Insole/T005S007_Insole_r.csv'),
-    ]
     
+    verify_dependencies()
+    load_dependencies()
+
+    validate_data_files(DATA_FILE_PAIRS)
+    data_pairs = DATA_FILE_PAIRS
+
     # データの読み込みと結合
     skeleton_data, pressure_data_left, pressure_data_right = load_and_combine_data(data_pairs)
 
     # numpy配列に変換
     skeleton_data = skeleton_data.to_numpy()
+
+    num_dims = 3
+    if skeleton_data.shape[1] % num_dims != 0:
+        raise ValueError(
+            f"Skeleton feature dimension {skeleton_data.shape[1]} is not divisible by {num_dims}; "
+            "cannot reshape into (num_joints, num_dims)."
+        )
+    num_joints = skeleton_data.shape[1] // num_dims
+    skeleton_data = skeleton_data.reshape(-1, num_joints, num_dims)
 
     # 圧力、回転、加速度データの前処理
     input_features, sensor_scalers = preprocess_pressure_data(
@@ -248,6 +325,11 @@ def main():
     num_joints = 21         # skeleton_data.shape[1] // 3  # 3D座標なので3で割る
     dropout = 0.2
     batch_size = 32
+
+    output_dir = Path("./weight")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    best_checkpoint_path = output_dir / "best_skeleton_LSTM.pth"
+    final_checkpoint_path = output_dir / "final_skeleton_LSTM.pth"
 
     # データローダーの設定
     train_dataset = PressureSkeletonDataset(train_input, train_skeleton)
@@ -309,7 +391,7 @@ def main():
         optimizer,
         scheduler,
         num_epochs=200,
-        save_path='./weight/best_skeleton_model.pth',
+        save_path=str(best_checkpoint_path),
         device=device
     )
 
@@ -329,7 +411,7 @@ def main():
             'dropout': dropout,
         }
     }
-    torch.save(final_checkpoint, './weight/final_skeleton_model_LSTM.pth')
+    torch.save(final_checkpoint, final_checkpoint_path)
 
 
 if __name__ == "__main__":
