@@ -2,7 +2,7 @@ import time
 import numpy as np
 import open3d as o3d
 
-
+# test
 def load_skeleton_csv(csv_path):
     """
     21ポイント(=63列)の骨格CSVを読み込み、
