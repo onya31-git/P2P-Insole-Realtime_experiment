@@ -1,263 +1,350 @@
-# メモ
-# paserでlogを残せるようにする
-# YAMLファイルを導入する
-# 
-# 
 import socket
 import pickle
+from collections import deque
+from pathlib import Path
+import threading
+import time
+
+import numpy as np
 import pandas as pd
 import torch
-from collections import deque
-import sensor
-from torch import nn
-import numpy as np
-from scipy.signal import find_peaks
-from processor.model import TimeSeriesLSTMClassifier
+import open3d as o3d
+
+import sensor  # あなたの環境にあるセンサパーサ
+from processor.model import LSTMSkeletonRegressor
 
 
-# データ受信に使用する IP とポートを定義
+# ==========================
+#  設定
+# ==========================
+
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 53000
-model_path = './model_v_aug_False.pth' # モデルトレーニング後にファイル名を指定し直す
 
-# Socket を初期化
+CHECKPOINT_PATH = "./weight/best_skeleton_LSTM.pth"
+
+MAX_BUFFER_LEN = 10000
+SEQ_LEN = 250
+SMOOTH_WINDOW = 3
+
+JOINT_CONNECTIONS = [
+        (0, 1), (1, 2), (2, 3), (3, 4),                               # 脊椎             # 左右で分けて細かく改行する
+        (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12), (5, 9),  # 手、肘、肩        # 左右で分けて細かく改行する
+        (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (13, 17)  # 足、腰   # 左右で分けて細かく改行する
+    ]
+
+# ==========================
+#  モデルとスケーラのロード
+# ==========================
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
+
+if "model_config" not in ckpt:
+    raise RuntimeError("checkpoint に model_config が含まれていません。")
+
+model_cfg = ckpt["model_config"]
+input_dim = model_cfg["input_dim"]
+d_model = model_cfg["d_model"]
+num_layers = model_cfg["num_layers"]
+num_joints = model_cfg["num_joints"]
+num_dims = model_cfg["num_dims"]
+dropout = model_cfg["dropout"]
+
+print("Loaded model config:")
+print(model_cfg)
+
+model = LSTMSkeletonRegressor(
+    input_dim=input_dim,
+    d_model=d_model,
+    num_layers=num_layers,
+    num_joints=num_joints,
+    num_dims=num_dims,
+    dropout=dropout,
+).to(device)
+
+model.load_state_dict(ckpt["model_state_dict"])
+model.eval()
+
+sensor_scalers = ckpt.get("sensor_scalers", None)
+if sensor_scalers is None:
+    raise RuntimeError("checkpoint に sensor_scalers が含まれていません。")
+
+pressure_normalizer = sensor_scalers["pressure"]["normalizer"]
+pressure_standardizer = sensor_scalers["pressure"]["standardizer"]
+rotation_normalizer = sensor_scalers["rotation"]["normalizer"]
+rotation_standardizer = sensor_scalers["rotation"]["standardizer"]
+accel_normalizer = sensor_scalers["accel"]["normalizer"]
+accel_standardizer = sensor_scalers["accel"]["standardizer"]
+
+
+# ==========================
+#  前処理（リアルタイム用）
+# ==========================
+
+def build_window_dataframe(buffer_list):
+    if len(buffer_list) == 0:
+        return None
+
+    df = pd.DataFrame(buffer_list)
+
+    pressure_cols_left = [f"L_P{i+1}" for i in range(35)]
+    pressure_cols_right = [f"R_P{i+1}" for i in range(35)]
+
+    rot_cols_left = ["L_Gyro_x", "L_Gyro_y", "L_Gyro_z"]
+    rot_cols_right = ["R_Gyro_x", "R_Gyro_y", "R_Gyro_z"]
+
+    accel_cols_left = ["L_Acc_x", "L_Acc_y", "L_Acc_z"]
+    accel_cols_right = ["R_Acc_x", "R_Acc_y", "R_Acc_z"]
+
+    required_cols = (
+        pressure_cols_left + pressure_cols_right +
+        rot_cols_left + rot_cols_right +
+        accel_cols_left + accel_cols_right
+    )
+
+    for col in required_cols:
+        if col not in df.columns:
+            raise KeyError(
+                f"リアルタイム DataFrame に列 {col} がありません。"
+            )
+
+    pressure_df = df[pressure_cols_left + pressure_cols_right].copy()
+    rotation_df = df[rot_cols_left + rot_cols_right].copy()
+    accel_df = df[accel_cols_left + accel_cols_right].copy()
+
+    return pressure_df, rotation_df, accel_df
+
+
+def transform_realtime_window(pressure_df, rotation_df, accel_df):
+    pressure_df = pressure_df.fillna(0.0)
+    rotation_df = rotation_df.fillna(0.0)
+    accel_df = accel_df.fillna(0.0)
+
+    pressure_smooth = pressure_df.rolling(
+        window=SMOOTH_WINDOW, min_periods=1, center=False
+    ).mean()
+    rotation_smooth = rotation_df.rolling(
+        window=SMOOTH_WINDOW, min_periods=1, center=False
+    ).mean()
+    accel_smooth = accel_df.rolling(
+        window=SMOOTH_WINDOW, min_periods=1, center=False
+    ).mean()
+
+    pressure_smooth = pressure_smooth.fillna(method="ffill").fillna(method="bfill")
+    rotation_smooth = rotation_smooth.fillna(method="ffill").fillna(method="bfill")
+    accel_smooth = accel_smooth.fillna(method="ffill").fillna(method="bfill")
+
+    pressure_arr = pressure_smooth.to_numpy()
+    rotation_arr = rotation_smooth.to_numpy()
+    accel_arr = accel_smooth.to_numpy()
+
+    pressure_proc = pressure_standardizer.transform(
+        pressure_normalizer.transform(pressure_arr)
+    )
+    rotation_proc = rotation_standardizer.transform(
+        rotation_normalizer.transform(rotation_arr)
+    )
+    accel_proc = accel_standardizer.transform(
+        accel_normalizer.transform(accel_arr)
+    )
+
+    pressure_grad1 = np.gradient(pressure_proc, axis=0)
+    pressure_grad2 = np.gradient(pressure_grad1, axis=0)
+
+    rotation_grad1 = np.gradient(rotation_proc, axis=0)
+    rotation_grad2 = np.gradient(rotation_grad1, axis=0)
+
+    accel_grad1 = np.gradient(accel_proc, axis=0)
+    accel_grad2 = np.gradient(accel_grad1, axis=0)
+
+    input_features = np.concatenate(
+        [
+            pressure_proc,
+            pressure_grad1,
+            pressure_grad2,
+            rotation_proc,
+            rotation_grad1,
+            rotation_grad2,
+            accel_proc,
+            accel_grad1,
+            accel_grad2,
+        ],
+        axis=1,
+    )
+
+    if input_features.shape[1] != input_dim:
+        raise ValueError(
+            f"リアルタイム特徴量の次元 {input_features.shape[1]} が "
+            f"モデルの input_dim={input_dim} と一致していません。"
+        )
+
+    return input_features
+
+
+# ==========================
+#  ソケット初期化
+# ==========================
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((LOCAL_IP, LOCAL_PORT))
 
-print("リアルタイムデータを待機中 {}:{}".format(LOCAL_IP, LOCAL_PORT))
-
-# 使用デバイスの設定（GPU があれば GPU を使用）
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# モデルファイルから static_param_control を読み込む
-model_pth = torch.load(model_path, map_location=device)
-static_param_control = model_pth['static_param_control']   # ここの指定はトレーニング用コードの設計に依存する
-
-# LSTM モデルを定義
-def create_model(input_dim, static_input_dim, class_num,
-                 d_model=64, nhead=4, num_layers=2, dim_feedforward=128):
-    # nhead, dim_feedforward は使わなくなるが、呼び出し側との互換のために受け取っておく
-
-    return TimeSeriesLSTMClassifier(
-        input_dim, d_model, num_layers, static_input_dim, class_num
-    )
+print(f"リアルタイム骨格推定を待機中 {LOCAL_IP}:{LOCAL_PORT}")
 
 
-# モデルの基本パラメータ
-input_dim = 82  # 動的特徴量の次元数（訓練時と一致させる）
-class_num = 4  # 分類カテゴリー数
-model_dim = 512
+# ==========================
+#  可視化用スレッド
+# ==========================
 
-# モデル構築および重み読み込み
-model = create_model(input_dim, model_dim, class_num)
-model.load_state_dict(model_pth['model_state_dict_LSTM'])
-model.to(device)
-model.eval()
+# 共有データ：最新の骨格（num_joints, 3）
+latest_skeleton = None
+skeleton_lock = threading.Lock()
+stop_event = threading.Event()
 
-# リアルタイム処理用のバッファを初期化
-data_buffer = deque(maxlen=10000)      # 最大保持ステップ数
-timestamp_buffer = deque(maxlen=10000)
 
-# 歩行検知用パラメータ
-window_size = 50                       # 平滑化ウィンドウ
-peak_threshold_multiplier = 1.0        # 平均圧力に対するピーク閾値倍率
-min_step_interval = 50                 # 2つのステップの間の最小サンプル数
+def skeleton_visualization_thread():
+    global latest_skeleton
 
-# リアルタイムデータ受信＋歩行検出
-def receive_and_detect():
-    global data_buffer, timestamp_buffer
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name="Realtime Skeleton (LSTM)", width=800, height=600)
 
-    # 左右圧力データの記録用
-    pressure_left_list = []
-    pressure_right_list = []
-    steps_detected = []
+    # 点群（ジョイント用）
+    points = o3d.geometry.PointCloud()
+    # 初期値（ゼロ座標）
+    init_points = np.zeros((num_joints, 3), dtype=np.float32)
+    points.points = o3d.utility.Vector3dVector(init_points)
 
-    # 訓練時と一致させる最大系列長（改善提案3）
-    max_sequence_length = 250
+    # 線分（骨用）
+    lines = o3d.geometry.LineSet()
+    lines.points = o3d.utility.Vector3dVector(init_points)
+    lines.lines = o3d.utility.Vector2iVector(JOINT_CONNECTIONS)
 
-    while True:
-        try:
-            # データ受信
+    vis.add_geometry(points)
+    vis.add_geometry(lines)
+
+    # 座標軸（オプション）
+    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    vis.add_geometry(axis)
+
+    # カメラの位置調整などが必要ならここで行う
+
+    try:
+        while not stop_event.is_set():
+            # 最新骨格をコピー
+            with skeleton_lock:
+                skel = None if latest_skeleton is None else latest_skeleton.copy()
+
+            if skel is not None:
+                # (num_joints, 3)
+                points.points = o3d.utility.Vector3dVector(skel)
+                lines.points = o3d.utility.Vector3dVector(skel)
+
+                vis.update_geometry(points)
+                vis.update_geometry(lines)
+
+            vis.poll_events()
+            vis.update_renderer()
+
+            time.sleep(0.02)  # 約 50 FPS
+
+    finally:
+        vis.destroy_window()
+
+
+# ==========================
+#  メインループ
+# ==========================
+
+def run_realtime_skeleton_estimation():
+    global latest_skeleton
+
+    data_buffer = deque(maxlen=MAX_BUFFER_LEN)
+
+    try:
+        while True:
             data, addr = sock.recvfrom(4096)
-
-            # データを復元
             data_l, data_r = pickle.loads(data)
 
-            # 左右センサ値を解析
             parsed_l = sensor.parse_sensor_data(data_l)
             parsed_r = sensor.parse_sensor_data(data_r)
 
-            if parsed_l and parsed_r:
-                # 左右の値を1行の辞書にまとめる
-                data_row = {
-                    'Timestamp': parsed_l.timestamp,
-                    **{f'L_P{i + 1}': p for i, p in enumerate(parsed_l.pressure_sensors)},
-                    'L_Mag_x': parsed_l.magnetometer[0],
-                    'L_Mag_y': parsed_l.magnetometer[1],
-                    'L_Mag_z': parsed_l.magnetometer[2],
-                    'L_Gyro_x': parsed_l.gyroscope[0],
-                    'L_Gyro_y': parsed_l.gyroscope[1],
-                    'L_Gyro_z': parsed_l.gyroscope[2],
-                    'L_Acc_x': parsed_l.accelerometer[0],
-                    'L_Acc_y': parsed_l.accelerometer[1],
-                    'L_Acc_z': parsed_l.accelerometer[2],
-                    **{f'R_P{i + 1}': p for i, p in enumerate(parsed_r.pressure_sensors)},
-                    'R_Mag_x': parsed_r.magnetometer[0],
-                    'R_Mag_y': parsed_r.magnetometer[1],
-                    'R_Mag_z': parsed_r.magnetometer[2],
-                    'R_Gyro_x': parsed_r.gyroscope[0],
-                    'R_Gyro_y': parsed_r.gyroscope[1],
-                    'R_Gyro_z': parsed_r.gyroscope[2],
-                    'R_Acc_x': parsed_r.accelerometer[0],
-                    'R_Acc_y': parsed_r.accelerometer[1],
-                    'R_Acc_z': parsed_r.accelerometer[2]
-                }
+            if not (parsed_l and parsed_r):
+                continue
 
-                # バッファへ格納
-                data_buffer.append(data_row)
-                timestamp_buffer.append(parsed_l.timestamp)
+            if len(parsed_l.pressure_sensors) < 35 or len(parsed_r.pressure_sensors) < 35:
+                print("Warning: pressure_sensors の長さが 35 未満です。")
+                continue
 
-                # 合計圧力を計算し追加
-                left_pressure = sum(parsed_l.pressure_sensors)
-                right_pressure = sum(parsed_r.pressure_sensors)
-                pressure_left_list.append(left_pressure)
-                pressure_right_list.append(right_pressure)
+            data_row = {
+                "Timestamp": parsed_l.timestamp,
+                # 左
+                **{f"L_P{i+1}": p for i, p in enumerate(parsed_l.pressure_sensors[:35])},
+                "L_Gyro_x": parsed_l.gyroscope[0],
+                "L_Gyro_y": parsed_l.gyroscope[1],
+                "L_Gyro_z": parsed_l.gyroscope[2],
+                "L_Acc_x": parsed_l.accelerometer[0],
+                "L_Acc_y": parsed_l.accelerometer[1],
+                "L_Acc_z": parsed_l.accelerometer[2],
+                # 右
+                **{f"R_P{i+1}": p for i, p in enumerate(parsed_r.pressure_sensors[:35])},
+                "R_Gyro_x": parsed_r.gyroscope[0],
+                "R_Gyro_y": parsed_r.gyroscope[1],
+                "R_Gyro_z": parsed_r.gyroscope[2],
+                "R_Acc_x": parsed_r.accelerometer[0],
+                "R_Acc_y": parsed_r.accelerometer[1],
+                "R_Acc_z": parsed_r.accelerometer[2],
+            }
 
-                # バッファ長以上なら古いものを削除
-                if len(pressure_left_list) > data_buffer.maxlen:
-                    pressure_left_list.pop(0)
-                    pressure_right_list.pop(0)
+            data_buffer.append(data_row)
 
-                # 圧力データの平滑化
-                if len(pressure_left_list) >= window_size:
-                    pressure_left_smooth = pd.Series(pressure_left_list).rolling(
-                        window=window_size, min_periods=1
-                    ).mean().tolist()
-                    pressure_right_smooth = pd.Series(pressure_right_list).rolling(
-                        window=window_size, min_periods=1
-                    ).mean().tolist()
-                else:
-                    continue
+            if len(data_buffer) < SEQ_LEN:
+                continue
 
-                # 平均圧力から閾値を設定
-                mean_pressure_left = np.mean(pressure_left_smooth)
-                mean_pressure_right = np.mean(pressure_right_smooth)
+            window_list = list(data_buffer)[-SEQ_LEN:]
 
-                threshold_left = mean_pressure_left * peak_threshold_multiplier
-                threshold_right = mean_pressure_right * peak_threshold_multiplier
+            try:
+                pressure_df, rotation_df, accel_df = build_window_dataframe(window_list)
+                input_features = transform_realtime_window(pressure_df, rotation_df, accel_df)
+            except Exception as e:
+                print(f"[Preprocess Error] {e}")
+                continue
 
-                # ピーク検出（ステップ候補）
-                peaks_left, _ = find_peaks(
-                    pressure_left_smooth, height=threshold_left, distance=min_step_interval
-                )
-                peaks_right, _ = find_peaks(
-                    pressure_right_smooth, height=threshold_right, distance=min_step_interval
-                )
+            if np.isnan(input_features).any() or np.isinf(input_features).any():
+                print("Warning: 入力特徴量に NaN/Inf を検出。スキップします。")
+                continue
 
-                # 歩行区間の検出ロジック
-                if len(peaks_left) >= 2:
-                    last_step_start = peaks_left[-2]
-                    last_step_end = peaks_left[-1]
+            seq_tensor = torch.tensor(
+                input_features, dtype=torch.float32, device=device
+            ).unsqueeze(0)
 
-                    # 同じ区間の重複検出を防止
-                    if (last_step_start, last_step_end) not in steps_detected:
+            with torch.no_grad():
+                pred_skeleton = model(seq_tensor)  # (1, num_joints, 3)
+                pred_skeleton_np = pred_skeleton.squeeze(0).cpu().numpy()
 
-                        # 区間内の谷（左）と右足のピークを確認
-                        interval_valleys_left, _ = find_peaks(
-                            [-v for v in pressure_left_smooth[last_step_start:last_step_end]],
-                            height=-threshold_left
-                        )
-                        interval_peaks_right = [
-                            p for p in peaks_right if last_step_start <= p < last_step_end
-                        ]
+            # 共有変数を更新
+            with skeleton_lock:
+                latest_skeleton = pred_skeleton_np
 
-                        if len(interval_valleys_left) >= 1 and len(interval_peaks_right) >= 1:
-                            steps_detected.append((last_step_start, last_step_end))
+            # 確認用に何か出したければ
+            root_joint = pred_skeleton_np[0]
+            print(f"root_joint = {root_joint}")
 
-                            # 区間データを抽出
-                            step_data = list(data_buffer)[
-                                last_step_start:last_step_end + 1
-                            ]
+    except KeyboardInterrupt:
+        print("リアルタイム骨格推定を終了します。")
+    except Exception as e:
+        print(f"[Runtime Error] {e}")
+    finally:
+        stop_event.set()
 
-                            # DataFrame に変換
-                            step_df = pd.DataFrame(step_data)
 
-                            # 不要な列（磁力計）を削除（改善提案1）
-                            step_df = step_df.loc[:, ~step_df.columns.str.contains('Mag', case=False)]
-
-                            # モデル入力準備：Timestamp を除外
-                            sequence = step_df.iloc[:, 1:].to_numpy()
-
-                            # 正規化（改善提案1）
-                            epsilon = 1e-8
-                            min_vals = np.min(sequence, axis=0)
-                            max_vals = np.max(sequence, axis=0)
-                            normalized_sequence = (
-                                sequence - min_vals
-                            ) / (max_vals - min_vals + epsilon)
-
-                            # NaN/inf の有無を確認（改善提案5）
-                            if np.isnan(normalized_sequence).any() or np.isinf(normalized_sequence).any():
-                                print("Warning: NaN または無限大を検出。今回の区間はスキップします。")
-                                continue
-
-                            # シーケンス長を取得
-                            sequence_length = normalized_sequence.shape[0]
-
-                            # 長さを揃えるためのパディングまたは切り取り（改善提案3）
-                            if sequence_length < max_sequence_length:
-                                padded_sequence = np.pad(
-                                    normalized_sequence,
-                                    ((0, max_sequence_length - sequence_length), (0, 0)),
-                                    'constant',
-                                    constant_values=0.0
-                                )
-                                attention_mask = [1] * sequence_length + \
-                                                 [0] * (max_sequence_length - sequence_length)
-                            else:
-                                padded_sequence = normalized_sequence[:max_sequence_length]
-                                attention_mask = [1] * max_sequence_length
-
-                            # テンソル化
-                            sequence_tensor = torch.tensor(
-                                padded_sequence, dtype=torch.float32
-                            ).unsqueeze(0).to(device)
-                            attention_mask = torch.tensor(
-                                attention_mask, dtype=torch.long
-                            ).unsqueeze(0).to(device)
-
-                            # 推論実行
-                            with torch.no_grad():
-                                logits = model(
-                                    sequence_tensor,
-                                    static_params_tensor.unsqueeze(0),
-                                    attention_mask=attention_mask
-                                )
-                                probabilities = torch.softmax(logits, dim=1)
-                                predicted_class = torch.argmax(probabilities, dim=1).item()
-
-                            # 結果出力
-                            print(
-                                f"リアルタイム判定: クラス {predicted_class}, "
-                                f"確率分布: {probabilities.cpu().numpy()}"
-                            )
-
-                            # バッファ溢れ防止のため古いデータを削除
-                            if len(data_buffer) > 8000:
-                                for _ in range(len(data_buffer) - 8000):
-                                    data_buffer.popleft()
-                                    timestamp_buffer.popleft()
-                                    pressure_left_list.pop(0)
-                                    pressure_right_list.pop(0)
-                                    # 歩行区間のインデックスも調整
-                                    steps_detected = [
-                                        (s - 1, e - 1) for s, e in steps_detected if e - 1 >= 0
-                                    ]
-
-        except Exception as e:
-            print(f"Error: {e}")
-            break
-
-# メイン実行：リアルタイム受信＋検知開始
 if __name__ == "__main__":
-    receive_and_detect()
+    # 可視化スレッドを起動
+    vis_thread = threading.Thread(
+        target=skeleton_visualization_thread, daemon=True
+    )
+    vis_thread.start()
+
+    # メイン処理
+    run_realtime_skeleton_estimation()
