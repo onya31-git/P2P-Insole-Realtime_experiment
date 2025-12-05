@@ -280,21 +280,21 @@ def run_realtime_skeleton_estimation():
             data_row = {
                 "Timestamp": parsed_l.timestamp,
                 # 左
-                **{f"L_P{i+1}": p for i, p in enumerate(parsed_l.pressure_sensors[:35])},
-                "L_Gyro_x": parsed_l.gyroscope[0],
-                "L_Gyro_y": parsed_l.gyroscope[1],
-                "L_Gyro_z": parsed_l.gyroscope[2],
-                "L_Acc_x": parsed_l.accelerometer[0],
-                "L_Acc_y": parsed_l.accelerometer[1],
-                "L_Acc_z": parsed_l.accelerometer[2],
+                **{f"P{i+1}": p for i, p in enumerate(parsed_l.pressure_sensors[:35])},
+                "Gyro_x": parsed_l.gyroscope[0],
+                "Gyro_y": parsed_l.gyroscope[1],
+                "Gyro_z": parsed_l.gyroscope[2],
+                "Acc_x": parsed_l.accelerometer[0],
+                "Acc_y": parsed_l.accelerometer[1],
+                "Acc_z": parsed_l.accelerometer[2],
                 # 右
-                **{f"R_P{i+1}": p for i, p in enumerate(parsed_r.pressure_sensors[:35])},
-                "R_Gyro_x": parsed_r.gyroscope[0],
-                "R_Gyro_y": parsed_r.gyroscope[1],
-                "R_Gyro_z": parsed_r.gyroscope[2],
-                "R_Acc_x": parsed_r.accelerometer[0],
-                "R_Acc_y": parsed_r.accelerometer[1],
-                "R_Acc_z": parsed_r.accelerometer[2],
+                **{f"P{i+1}": p for i, p in enumerate(parsed_r.pressure_sensors[:35])},
+                "Gyro_x": parsed_r.gyroscope[0],
+                "Gyro_y": parsed_r.gyroscope[1],
+                "Gyro_z": parsed_r.gyroscope[2],
+                "Acc_x": parsed_r.accelerometer[0],
+                "Acc_y": parsed_r.accelerometer[1],
+                "Acc_z": parsed_r.accelerometer[2],
             }
 
             data_buffer.append(data_row)
