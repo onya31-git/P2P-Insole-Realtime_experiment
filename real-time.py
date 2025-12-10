@@ -1,3 +1,8 @@
+# メモ
+#
+#
+#
+
 import socket
 import pickle
 from collections import deque
@@ -10,7 +15,7 @@ import pandas as pd
 import torch
 import open3d as o3d
 
-import sensor  # あなたの環境にあるセンサパーサ
+import sensor  # センサパーサ
 from processor.model import LSTMSkeletonRegressor
 
 
@@ -28,9 +33,9 @@ SEQ_LEN = 250
 SMOOTH_WINDOW = 3
 
 JOINT_CONNECTIONS = [
-        (0, 1), (1, 2), (2, 3), (3, 4),                               # 脊椎             # 左右で分けて細かく改行する
-        (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12), (5, 9),  # 手、肘、肩        # 左右で分けて細かく改行する
-        (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (13, 17)  # 足、腰   # 左右で分けて細かく改行する
+        (0, 1), (1, 2), (2, 3), (3, 4),                                           # 脊椎         # 左右で分けて細かく改行する
+        (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12), (5, 9),             # 手、肘、肩    # 左右で分けて細かく改行する
+        (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (13, 17)    # 足、腰        # 左右で分けて細かく改行する
     ]
 
 # ==========================
@@ -78,7 +83,6 @@ rotation_normalizer = sensor_scalers["rotation"]["normalizer"]
 rotation_standardizer = sensor_scalers["rotation"]["standardizer"]
 accel_normalizer = sensor_scalers["accel"]["normalizer"]
 accel_standardizer = sensor_scalers["accel"]["standardizer"]
-
 
 # ==========================
 #  前処理（リアルタイム用）
@@ -280,21 +284,21 @@ def run_realtime_skeleton_estimation():
             data_row = {
                 "Timestamp": parsed_l.timestamp,
                 # 左
-                **{f"P{i+1}": p for i, p in enumerate(parsed_l.pressure_sensors[:35])},
-                "Gyro_x": parsed_l.gyroscope[0],
-                "Gyro_y": parsed_l.gyroscope[1],
-                "Gyro_z": parsed_l.gyroscope[2],
-                "Acc_x": parsed_l.accelerometer[0],
-                "Acc_y": parsed_l.accelerometer[1],
-                "Acc_z": parsed_l.accelerometer[2],
+                **{f"L_P{i+1}": p for i, p in enumerate(parsed_l.pressure_sensors[:35])},
+                "L_Gyro_x": parsed_l.gyroscope[0],
+                "L_Gyro_y": parsed_l.gyroscope[1],
+                "L_Gyro_z": parsed_l.gyroscope[2],
+                "L_Acc_x": parsed_l.accelerometer[0],
+                "L_Acc_y": parsed_l.accelerometer[1],
+                "L_Acc_z": parsed_l.accelerometer[2],
                 # 右
-                **{f"P{i+1}": p for i, p in enumerate(parsed_r.pressure_sensors[:35])},
-                "Gyro_x": parsed_r.gyroscope[0],
-                "Gyro_y": parsed_r.gyroscope[1],
-                "Gyro_z": parsed_r.gyroscope[2],
-                "Acc_x": parsed_r.accelerometer[0],
-                "Acc_y": parsed_r.accelerometer[1],
-                "Acc_z": parsed_r.accelerometer[2],
+                **{f"R_P{i+1}": p for i, p in enumerate(parsed_r.pressure_sensors[:35])},
+                "R_Gyro_x": parsed_r.gyroscope[0],
+                "R_Gyro_y": parsed_r.gyroscope[1],
+                "R_Gyro_z": parsed_r.gyroscope[2],
+                "R_Acc_x": parsed_r.accelerometer[0],
+                "R_Acc_y": parsed_r.accelerometer[1],
+                "R_Acc_z": parsed_r.accelerometer[2],
             }
 
             data_buffer.append(data_row)
