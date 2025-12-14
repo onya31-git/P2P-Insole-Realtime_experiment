@@ -129,67 +129,69 @@ class EnhancedSkeletonLoss(nn.Module):
         
         return self.alpha * mse_loss + self.beta * (motion_loss + accel_loss)
     
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, save_path, device):
+def train_model(model,train_loader,val_loader,criterion,optimizer,scheduler,num_epochs,save_path,device,sensor_scalers=None,model_config=None):
     best_val_loss = float('inf')
-    
+
     for epoch in range(num_epochs):
         # Training phase
         model.train()
         train_loss = 0.0
-        
+
         for pressure, skeleton in train_loader:
-            # データをGPUに移動
             pressure = pressure.to(device)
             skeleton = skeleton.to(device)
-            
+
             optimizer.zero_grad()
-            
+
             outputs = model(pressure)
             loss = criterion(outputs, skeleton)
-            
+
             loss.backward()
             optimizer.step()
-            
+
             train_loss += loss.item()
-        
+
         # Validation phase
         model.eval()
         val_loss = 0.0
-        
+
         with torch.no_grad():
             for pressure, skeleton in val_loader:
-                # データをGPUに移動
                 pressure = pressure.to(device)
                 skeleton = skeleton.to(device)
-                
+
                 outputs = model(pressure)
                 loss = criterion(outputs, skeleton)
                 val_loss += loss.item()
-        
-        # 平均損失の計算
+
         avg_train_loss = train_loss / len(train_loader)
         avg_val_loss = val_loss / len(val_loader)
-        
-        # スケジューラのステップ
+
         scheduler.step(avg_val_loss)
         current_lr = optimizer.param_groups[0]['lr']
-        
+
         print(f'Epoch {epoch+1}')
         print(f'Training Loss: {avg_train_loss:.4f}')
         print(f'Validation Loss: {avg_val_loss:.4f}')
         print(f'Learning Rate: {current_lr:.6f}')
-        
-        # モデルの保存
+
+        # モデルの保存（best）
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
+
             checkpoint = {
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'best_val_loss': best_val_loss,
+
+                # ★追加：推論に必要
+                'sensor_scalers': sensor_scalers,
+                'model_config': model_config,
             }
+
             torch.save(checkpoint, save_path)
             print(f'Model saved at epoch {epoch+1}')
-        
+
         print('-' * 60)

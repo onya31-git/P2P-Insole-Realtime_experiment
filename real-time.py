@@ -352,3 +352,4 @@ if __name__ == "__main__":
 
     # メイン処理
     run_realtime_skeleton_estimation()
+

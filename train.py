@@ -393,18 +393,30 @@ def main():
         # verbose=True
     )
 
+    model_config = {
+    'model_type': 'lstm',
+    'input_dim': input_dim,
+    'd_model': d_model,
+    'num_layers': num_layers,
+    'num_joints': num_joints,
+    'num_dims': 3,
+    'dropout': dropout,
+}
+    
     # トレーニング実行
     train_model(
-        model,
-        train_loader,
-        val_loader,
-        criterion,
-        optimizer,
-        scheduler,
-        num_epochs=200,
-        save_path=str(best_checkpoint_path),
-        device=device
-    )
+    model,
+    train_loader,
+    val_loader,
+    criterion,
+    optimizer,
+    scheduler,
+    num_epochs=200,
+    save_path=str(best_checkpoint_path),
+    device=device,
+    sensor_scalers=sensor_scalers,
+    model_config=model_config,
+)
 
     # モデルの保存
     final_checkpoint = {
