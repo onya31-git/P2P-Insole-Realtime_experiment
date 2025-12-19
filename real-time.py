@@ -18,6 +18,10 @@ import open3d as o3d
 import sensor  # センサパーサ
 from processor.model import LSTMSkeletonRegressor
 
+import warnings
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
+
+
 
 # ==========================
 #  設定
@@ -45,7 +49,7 @@ JOINT_CONNECTIONS = [
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
+ckpt = torch.load(CHECKPOINT_PATH, map_location=device, weights_only=False)
 
 if "model_config" not in ckpt:
     raise RuntimeError("checkpoint に model_config が含まれていません。")
@@ -137,9 +141,10 @@ def transform_realtime_window(pressure_df, rotation_df, accel_df):
         window=SMOOTH_WINDOW, min_periods=1, center=False
     ).mean()
 
-    pressure_smooth = pressure_smooth.fillna(method="ffill").fillna(method="bfill")
-    rotation_smooth = rotation_smooth.fillna(method="ffill").fillna(method="bfill")
-    accel_smooth = accel_smooth.fillna(method="ffill").fillna(method="bfill")
+    pressure_smooth = pressure_smooth.ffill().bfill()
+    rotation_smooth = rotation_smooth.ffill().bfill()
+    accel_smooth    = accel_smooth.ffill().bfill()
+
 
     pressure_arr = pressure_smooth.to_numpy()
     rotation_arr = rotation_smooth.to_numpy()
@@ -229,29 +234,32 @@ def skeleton_visualization_thread():
     vis.add_geometry(lines)
 
     # 座標軸（オプション）
-    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-    vis.add_geometry(axis)
+    # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    # vis.add_geometry(axis)
 
     # カメラの位置調整などが必要ならここで行う
 
     try:
+        did_reset = False
         while not stop_event.is_set():
-            # 最新骨格をコピー
             with skeleton_lock:
                 skel = None if latest_skeleton is None else latest_skeleton.copy()
 
             if skel is not None:
-                # (num_joints, 3)
                 points.points = o3d.utility.Vector3dVector(skel)
-                lines.points = o3d.utility.Vector3dVector(skel)
+                lines.points  = o3d.utility.Vector3dVector(skel)
 
                 vis.update_geometry(points)
                 vis.update_geometry(lines)
 
+                if not did_reset:
+                    vis.reset_view_point(True)
+                    did_reset = True
+
             vis.poll_events()
             vis.update_renderer()
+            time.sleep(0.02)
 
-            time.sleep(0.02)  # 約 50 FPS
 
     finally:
         vis.destroy_window()
@@ -326,6 +334,12 @@ def run_realtime_skeleton_estimation():
             with torch.no_grad():
                 pred_skeleton = model(seq_tensor)  # (1, num_joints, 3)
                 pred_skeleton_np = pred_skeleton.squeeze(0).cpu().numpy()
+                mn = float(pred_skeleton_np.min())
+                mx = float(pred_skeleton_np.max())
+                mean = float(pred_skeleton_np.mean())
+                std = float(pred_skeleton_np.std())
+                print(f"[pred] min={mn:.4f}, max={mx:.4f}, mean={mean:.4f}, std={std:.4f}")
+
 
             # 共有変数を更新
             with skeleton_lock:

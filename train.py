@@ -19,87 +19,70 @@ MinMaxScaler = None
 StandardScaler = None
 
 DATA_FILE_PAIRS = [
+    # test 4
+    (   # s1
+        './data/training_data/Skeleton/T004S001_skeleton.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_left.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_right.csv',
+    ),( 
+        # s2
+        './data/training_data/Skeleton/T004S002_skeleton.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_left.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_right.csv',
+    ),(  
+        # s3
+        './data/training_data/Skeleton/T004S003_skeleton.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_left.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_right.csv',
+    ),(
+        # s4
+        './data/training_data/Skeleton/T004S004_skeleton.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_left.csv',
+        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_right.csv',
+    ),
 
     # # 新データ(test5) 
     # (   # s1
     #     './data/training_data/Skeleton/T005S001_skeleton.csv',
-    #     './data/training_data/Insole/T005S001_Insole_l.csv',
-    #     './data/training_data/Insole/T005S001_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_135111_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_135111_right.csv',
     # ),( 
     #     # s2
     #     './data/training_data/Skeleton/T005S002_skeleton.csv',
-    #     './data/training_data/Insole/T005S002_Insole_l.csv',
-    #     './data/training_data/Insole/T005S002_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_143200_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_143200_right.csv',
     # ),(  
     #     # s3
     #     './data/training_data/Skeleton/T005S003_skeleton.csv',
-    #     './data/training_data/Insole/T005S003_Insole_l.csv',
-    #     './data/training_data/Insole/T005S003_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_150203_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_150203_right.csv',
     # ),(
     #     # s4
     #     './data/training_data/Skeleton/T005S004_skeleton.csv',
-    #     './data/training_data/Insole/T005S004_Insole_l.csv',
-    #     './data/training_data/Insole/T005S004_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_155853_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_155853_right.csv',
     # ),(
     #     # s5
     #     './data/training_data/Skeleton/T005S005_skeleton.csv',
-    #     './data/training_data/Insole/T005S005_Insole_l.csv',
-    #     './data/training_data/Insole/T005S005_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_165625_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_165625_right.csv',
     # ),(
     #     # s6
     #     './data/training_data/Skeleton/T005S006_skeleton.csv',
-    #     './data/training_data/Insole/T005S006_Insole_l.csv',
-    #     './data/training_data/Insole/T005S006_Insole_r.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_175456_left.csv',
+    #     './rawData/20250529test5/Insole_0529/original/20250529_175456_right.csv',
     # ),(
     #     # s7
     #     './data/training_data/Skeleton/T005S007_skeleton.csv',
-    #     './data/training_data/Insole/T005S007_Insole_l.csv',
-    #     './data/training_data/Insole/T005S007_Insole_r.csv',
-    # ),
-
-    # 新データ(test5) 
-    (   # s1
-        './data/training_data/Skeleton/T005S001_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_135111_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_135111_right.csv',
-    ),( 
-        # s2
-        './data/training_data/Skeleton/T005S002_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_143200_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_143200_right.csv',
-    ),(  
-        # s3
-        './data/training_data/Skeleton/T005S003_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_150203_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_150203_right.csv',
-    ),(
-        # s4
-        './data/training_data/Skeleton/T005S004_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_155853_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_155853_right.csv',
-    ),(
-        # s5
-        './data/training_data/Skeleton/T005S005_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_165625_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_165625_right.csv',
-    ),(
-        # s6
-        './data/training_data/Skeleton/T005S006_skeleton.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_175456_left.csv',
-        './rawData/20250529test5/Insole_0529/original/20250529_175456_right.csv',
-    ),(
-        # s7
-        './data/training_data/Skeleton/T005S007_skeleton.csv',
-        './rawData/20250529test5/Insole_0530/original/20250530_133724_left.csv',
-        './rawData/20250529test5/Insole_0530/original/20250530_133724_right.csv',
-    ),(
-        # s8
-        './data/training_data/Skeleton/T005S007_skeleton.csv',
-        './rawData/20250529test5/Insole_0530/original/20250530_141453_left.csv',
-        './rawData/20250529test5/Insole_0530/original/20250530_141453_right.csv',
-    )
+    #     './rawData/20250529test5/Insole_0530/original/20250530_133724_left.csv',
+    #     './rawData/20250529test5/Insole_0530/original/20250530_133724_right.csv',
+    # ),(
+    #     # s8
+    #     './data/training_data/Skeleton/T005S007_skeleton.csv',
+    #     './rawData/20250529test5/Insole_0530/original/20250530_141453_left.csv',
+    #     './rawData/20250529test5/Insole_0530/original/20250530_141453_right.csv',
+    # )
 ]
-
 
 def verify_dependencies():
     required_modules = ("pandas", "numpy", "sklearn", "torch")
@@ -298,6 +281,9 @@ def main():
 
     # データの読み込みと結合
     skeleton_data, pressure_data_left, pressure_data_right = load_and_combine_data(data_pairs)
+
+    # テスト4データのために一時的に追加
+    skeleton_data = skeleton_data.fillna(method='bfill').fillna(method='ffill')
 
     # numpy配列に変換
     skeleton_data = skeleton_data.to_numpy()
