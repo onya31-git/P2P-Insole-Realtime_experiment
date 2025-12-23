@@ -129,7 +129,19 @@ class EnhancedSkeletonLoss(nn.Module):
         
         return self.alpha * mse_loss + self.beta * (motion_loss + accel_loss)
     
-def train_model(model,train_loader,val_loader,criterion,optimizer,scheduler,num_epochs,save_path,device,sensor_scalers=None,model_config=None):
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    criterion,
+    optimizer,
+    scheduler,
+    num_epochs,
+    save_path,
+    device,
+    sensor_scalers=None,
+    model_config=None,
+):
     best_val_loss = float('inf')
 
     for epoch in range(num_epochs):
