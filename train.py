@@ -1,3 +1,6 @@
+# メモ
+# window sizeが調整されていない問題を修正する必要あり
+#
 
 # main.py
 import torch

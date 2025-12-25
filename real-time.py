@@ -1,6 +1,6 @@
 # メモ
 # Window size の変更
-#
+# 
 #
 
 import socket
