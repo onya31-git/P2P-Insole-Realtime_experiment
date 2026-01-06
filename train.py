@@ -156,14 +156,14 @@ def preprocess_pressure_data(left_data, right_data):
 
     # 移動平均フィルタの適用
     window_size = 3
-    pressure_combined = pressure_combined.rolling(window=window_size, center=True).mean()
-    rotation_combined = rotation_combined.rolling(window=window_size, center=True).mean()
-    accel_combined = accel_combined.rolling(window=window_size, center=True).mean()
+    pressure_combined = pressure_combined.rolling(window=window_size, min_periods=1, center=False).mean()
+    rotation_combined = rotation_combined.rolling(window=window_size, min_periods=1, center=False).mean()
+    accel_combined = accel_combined.rolling(window=window_size, min_periods=1, center=False).mean()
     
     # NaN値を前後の値で補間
-    pressure_combined = pressure_combined.fillna(method='bfill').fillna(method='ffill')
-    rotation_combined = rotation_combined.fillna(method='bfill').fillna(method='ffill')
-    accel_combined = accel_combined.fillna(method='bfill').fillna(method='ffill')
+    pressure_combined = pressure_combined.ffill().bfill()
+    rotation_combined = rotation_combined.ffill().bfill()
+    accel_combined = accel_combined.ffill().bfill()
 
     # 正規化と標準化のスケーラー初期化
     pressure_normalizer = MinMaxScaler()
