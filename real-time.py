@@ -33,7 +33,6 @@ LOCAL_PORT = 53000
 CHECKPOINT_PATH = "./weight/best_skeleton_LSTM_test5.pth"
 
 MAX_BUFFER_LEN = 10000
-SEQ_LEN = 250
 SMOOTH_WINDOW = 3
 
 JOINT_CONNECTIONS = [
@@ -80,6 +79,12 @@ model.eval()
 sensor_scalers = ckpt.get("sensor_scalers", None)
 if sensor_scalers is None:
     raise RuntimeError("checkpoint に sensor_scalers が含まれていません。")
+
+# SEQ_LENを読み込む
+model_cfg = ckpt["model_config"]
+SEQ_LEN = int(model_cfg.get("seq_len", 250))  # 無ければ 250
+print("Using SEQ_LEN =", SEQ_LEN)
+
 
 pressure_normalizer = sensor_scalers["pressure"]["normalizer"]
 pressure_standardizer = sensor_scalers["pressure"]["standardizer"]

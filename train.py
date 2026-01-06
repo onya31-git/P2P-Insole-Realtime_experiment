@@ -20,6 +20,9 @@ np = None
 train_test_split = None
 MinMaxScaler = None
 StandardScaler = None
+SEQ_LEN = 100
+STRIDE = 1
+VAL_RATIO = 0.2
 
 DATA_FILE_PAIRS = [
     # test 4
@@ -306,13 +309,13 @@ def main():
         pressure_data_right
     )
 
-    # データの分割
-    train_input, val_input, train_skeleton, val_skeleton = train_test_split(
-        input_features, 
-        skeleton_data,
-        test_size=0.2, 
-        random_state=42
-    )
+    # # データの分割(SEQ_LEN処理の追加時に不要になった)
+    # train_input, val_input, train_skeleton, val_skeleton = train_test_split(
+    #     input_features, 
+    #     skeleton_data,
+    #     test_size=0.2, 
+    #     random_state=42
+    # )
 
     # デバイスの設定
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -331,24 +334,22 @@ def main():
     best_checkpoint_path = output_dir / "best_skeleton_LSTM.pth"
     final_checkpoint_path = output_dir / "final_skeleton_LSTM.pth"
 
-    # データローダーの設定
-    train_dataset = PressureSkeletonDataset(train_input, train_skeleton)
-    val_dataset = PressureSkeletonDataset(val_input, val_skeleton)
-    
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True
-    )
+    T = input_features.shape[0]
+    split_t = int(T * (1.0 - VAL_RATIO))
+
+    train_input = input_features[:split_t]
+    train_skeleton = skeleton_data[:split_t]
+
+    val_input = input_features[split_t:]
+    val_skeleton = skeleton_data[split_t:]
+
+    # Dataset（窓化）
+    train_dataset = PressureSkeletonDataset(train_input, train_skeleton, seq_len=SEQ_LEN, stride=STRIDE)
+    val_dataset   = PressureSkeletonDataset(val_input,   val_skeleton,   seq_len=SEQ_LEN, stride=STRIDE)
+
+    # DataLoader はそのまま
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  num_workers=4, pin_memory=True)
+    val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     print("Checking final training and validation data...")
     print("Train input NaN count:", np.isnan(train_input).sum(), "Inf count:", np.isinf(train_input).sum())
@@ -390,6 +391,7 @@ def main():
     'num_joints': num_joints,
     'num_dims': 3,
     'dropout': dropout,
+    'seq_len': SEQ_LEN,
 }
     
     # トレーニング実行
