@@ -402,7 +402,7 @@ def main():
     criterion,
     optimizer,
     scheduler,
-    num_epochs=200,
+    num_epochs=100,
     save_path=str(best_checkpoint_path),
     device=device,
     sensor_scalers=sensor_scalers,

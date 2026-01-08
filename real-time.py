@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore", message="X does not have valid feature names")
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 53000
 
-CHECKPOINT_PATH = "./weight/best_skeleton_LSTM_test5.pth"
+CHECKPOINT_PATH = "./weight/best_skeleton_LSTM.pth"
 
 MAX_BUFFER_LEN = 10000
 SMOOTH_WINDOW = 3
