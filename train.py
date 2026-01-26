@@ -25,27 +25,35 @@ STRIDE = 1
 VAL_RATIO = 0.2
 
 DATA_FILE_PAIRS = [
-    # test 4
-    (   # s1
-        './data/training_data/Skeleton/T004S001_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_right.csv',
-    ),( 
-        # s2
-        './data/training_data/Skeleton/T004S002_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_right.csv',
-    ),(  
-        # s3
-        './data/training_data/Skeleton/T004S003_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_right.csv',
-    ),(
-        # s4
-        './data/training_data/Skeleton/T004S004_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_right.csv',
+    # test3 体の傾け
+    (
+        './data/20250518test3/Opti-track/3_final/Take 2024-11-15 03.31.59 PM.csv',
+         './rawData/20241115test3/InsoleSensor/20241115_153700_left.csv',
+         './rawData/20241115test3/InsoleSensor/20241115_153700_right.csv',
     ),
+
+
+    # # test 4
+    # (   # s1
+    #     './data/training_data/Skeleton/T004S001_skeleton.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_left.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_right.csv',
+    # ),( 
+    #     # s2
+    #     './data/training_data/Skeleton/T004S002_skeleton.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_left.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_right.csv',
+    # ),(  
+    #     # s3
+    #     './data/training_data/Skeleton/T004S003_skeleton.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_left.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_right.csv',
+    # ),(
+    #     # s4
+    #     './data/training_data/Skeleton/T004S004_skeleton.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_left.csv',
+    #     './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_right.csv',
+    # ),
 
     # # 新データ(test5) 
     # (   # s1

@@ -1,3 +1,5 @@
+## GCU version 2.x用のレシーバー
+
 import socket
 import signal
 import sys
