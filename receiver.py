@@ -7,6 +7,7 @@ import socket
 from datetime import datetime
 from typing import Optional, Dict, Any
 import aiohttp
+import shutil
 
 import sensor
 
@@ -19,8 +20,8 @@ import sensor
 SSE_URL = "http://163.143.136.103:5001/stream"
 
 # 2台のデバイス識別（payload["dn"] or obj["dn"] を想定）
-DN_LEFT = "B8F862C6FE30"
-DN_RIGHT = "B78G98CO9GFFU"
+DN_LEFT = "3030F9284F54"
+DN_RIGHT = "3030F92685D4"
 
 # 保存先
 exp_name = "./exp/0707/"
@@ -30,6 +31,14 @@ LOCAL_IP = "127.0.0.1"
 LOCAL_PORT_1 = 53000
 LOCAL_PORT_2 = 53001
 
+# --- ログ設定 ---
+LOG_EVERY_N = 100          # N件に1回、サマリを表示（高頻度なら 50~200 推奨）
+SHOW_RAW_ON_LOG = False   # True にするとログ行に生JSONの先頭を付ける（長いので注意）
+RAW_HEAD_CHARS = 200      # 生JSONを表示する場合の先頭文字数
+
+# dn の扱い：Trueなら payload["dn"] を優先（あなたのログで不整合があったため）
+PREFER_PAYLOAD_DN = True
+
 # =========================
 # グローバル状態（既存構造に合わせる）
 # =========================
@@ -38,12 +47,17 @@ data_list_l = []
 data_list_r = []
 
 # 「最新の生JSON（bytes）」を保持して、左右そろったらpickle送信する
-_last_raw_left: Optional[bytes] = None
-_last_raw_right: Optional[bytes] = None
+_last_data_left: Optional[sensor.SensorData] = None
+_last_data_right: Optional[sensor.SensorData] = None
 
 # aiohttpタスク停止用
 _stop_event = asyncio.Event()
 
+# カウント類（ログ用）
+_count_total = 0
+_count_left = 0
+_count_right = 0
+_count_other = 0
 
 # =========================
 # ユーティリティ
@@ -91,43 +105,73 @@ def sse_json_to_sensordata(obj: Dict[str, Any]) -> Optional[sensor.SensorData]:
         accelerometer=accelerometer,
     )
 
+def extract_dn(obj: Dict[str, Any]) -> Optional[str]:
+    payload = obj.get("payload", {})
+    if PREFER_PAYLOAD_DN and isinstance(payload, dict) and isinstance(payload.get("dn"), str):
+        return payload.get("dn")
+    if isinstance(obj.get("dn"), str):
+        return obj.get("dn")
+    if isinstance(payload, dict) and isinstance(payload.get("dn"), str):
+        return payload.get("dn")
+    return None
+
+
+def log_update(dn: str, obj: Dict[str, Any], raw_str: str):
+    """
+    画面を埋めないために「1行上書き」するログ。
+    - 通常ログは同一行を更新
+    - エラー/警告は別途改行して残す（下で対応）
+    """
+    payload = obj.get("payload", {}) if isinstance(obj.get("payload"), dict) else {}
+    sn = payload.get("sn")
+    ts = payload.get("ts")
+    p = payload.get("p") or []
+    gyro = payload.get("gyro") or []
+    acc = payload.get("acc") or []
+
+    msg = (
+        f"[update] dn={dn} sn={sn} ts={ts} "
+        f"p_len={len(p)} gyro={gyro} acc={acc} "
+        f"(L={_count_left} R={_count_right} other={_count_other} total={_count_total})"
+    )
+
+    # 端末幅に合わせて切り詰め（長文で折り返されるのを防ぐ）
+    width = shutil.get_terminal_size((120, 20)).columns
+    if len(msg) > width - 1:
+        msg = msg[: max(0, width - 2)] + "…"
+
+    # 行をクリアしてから上書き（前の行が長い場合にゴミが残らないようにする）
+    clear = " " * (width - 1)
+    sys.stdout.write("\r" + clear)
+    sys.stdout.write("\r" + msg)
+    sys.stdout.flush()
+
 
 def save_on_exit():
     now = datetime.now()
     file_name_l = exp_name + str(now.strftime("%Y%m%d_%H%M%S") + "_left" + ".csv")
     file_name_r = exp_name + str(now.strftime("%Y%m%d_%H%M%S") + "_right" + ".csv")
 
-    print(f"\nExiting gracefully. Sensor data saved to {file_name_l}, {file_name_r}.")
+    print(f"\nExiting gracefully. Sensor data saved to {file_name_l}, {fe_name_r}.")
     sensor.save_sensor_data_to_csv(data_list_l, file_name_l)
     sensor.save_sensor_data_to_csv(data_list_r, file_name_r)
 
 
 def _install_signal_handlers():
     def _handler(*_):
-        # asyncio側に停止を伝える
         _stop_event.set()
 
-    # Unix系：SIGINT, SIGTERM
     signal.signal(signal.SIGINT, _handler)
     signal.signal(signal.SIGTERM, _handler)
 
 
-# =========================
-# SSE パーサ（aiohttp）
-# =========================
-
 async def sse_consume(url: str, session: aiohttp.ClientSession):
-    """
-    SSEを購読して、event:update の data JSON を順次処理する。
-    """
-    global _last_raw_left, _last_raw_right
+    global _last_data_left, _last_data_right
+    global _count_total, _count_left, _count_right, _count_other
 
     headers = {"Accept": "text/event-stream"}
-
-    # 可視化用UDPソケット（以前と同じ）
     sock_vis = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    count = 0
     backoff = 1.0
 
     while not _stop_event.is_set():
@@ -144,90 +188,83 @@ async def sse_consume(url: str, session: aiohttp.ClientSession):
 
                     line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
 
-                    # 空行で1イベント確定
+                    # 空行でイベント確定
                     if line == "":
                         if data_lines:
                             data_str = "\n".join(data_lines)
 
                             if event_name == "update":
-                                try :
+                                try:
                                     obj = json.loads(data_str)
-                                except json.JSONDecodeError:
+                                except json.JSONDecodeError as e:
+                                    print(f"[warn] JSON decode error: {e} head={data_str[:120]!r}")
                                     event_name, data_lines = None, []
                                     continue
 
-                                # dnは obj["dn"] でも payload["dn"] でも来るので両対応
-                                dn = obj.get("dn")
-                                payload = obj.get("payload", {})
-                                if dn is None and isinstance(payload, dict):
-                                    dn = payload.get("dn")
-
-                                if not isinstance(dn, str):
+                                dn = extract_dn(obj)
+                                if dn is None:
+                                    print(f"[warn] dn not found. head={data_str[:120]!r}")
                                     event_name, data_lines = None, []
                                     continue
 
                                 sd = sse_json_to_sensordata(obj)
                                 if sd is None:
+                                    print(f"[warn] invalid payload format. dn={dn} head={data_str[:120]!r}")
                                     event_name, data_lines = None, []
                                     continue
 
-                                # 既存の左右バッファへ
-                                raw_bytes = data_str.encode("utf-8")
+                                _count_total += 1
+                                # ログ：間引き
+                                if _count_total % LOG_EVERY_N == 0:
+                                    log_update(dn, obj, data_str)
 
                                 if dn == DN_LEFT:
-                                    data_list_l.append(sd)
-                                    _last_raw_left = raw_bytes
+                                    _last_data_left = sd
+                                    _count_left += 1
                                 elif dn == DN_RIGHT:
-                                    data_list_r.append(sd)
-                                    _last_raw_right = raw_bytes
+                                    _last_data_right = sd
+                                    _count_right += 1
                                 else:
-                                    # 2台以外が混ざる可能性があるなら無視
-                                    event_name, data_lines = None, []
+                                    _count_other += 1
+                                    # 2台以外が混ざる可能性があるなら、ここでcontinueでもOK
                                     continue
 
-                                # 左右が揃ったら、以前と同じpickle形式で送る
-                                if _last_raw_left is not None and _last_raw_right is not None:
-                                    data2 = pickle.dumps((_last_raw_left, _last_raw_right))
+                                # 左右両方のデータが揃ったら、ペアとして送信し、リセットする
+                                if _last_data_left is not None and _last_data_right is not None:
+                                    # ペアができたので、これを送信・保存する
+                                    left_to_send, right_to_send = _last_data_left, _last_data_right
+
+                                    # 保存リストに追加
+                                    data_list_l.append(left_to_send)
+                                    data_list_r.append(right_to_send)
+
+                                    data2 = pickle.dumps((left_to_send, right_to_send))
                                     sock_vis.sendto(data2, (LOCAL_IP, LOCAL_PORT_1))
                                     sock_vis.sendto(data2, (LOCAL_IP, LOCAL_PORT_2))
 
-                                count += 1
-                                if count % 200 == 0:
-                                    print(
-                                        f"\rReceived {count} updates "
-                                        f"(L={len(data_list_l)} R={len(data_list_r)}) "
-                                        f"Press Ctrl+C to stop.",
-                                        end=""
-                                    )
+                                    # 送信後、ペアをリセットして次のペアを待つ
+                                    _last_data_left = None
+                                    _last_data_right = None
 
-                        # 次イベントへ
                         event_name, data_lines = None, []
                         continue
 
-                    # コメント行は無視
                     if line.startswith(":"):
                         continue
-
                     if line.startswith("event:"):
                         event_name = line[len("event:"):].strip()
                     elif line.startswith("data:"):
                         data_lines.append(line[len("data:"):].lstrip())
 
-            # 正常に抜けた（サーバが切断など）→再接続
             backoff = 1.0
 
         except Exception as e:
-            # 切断や一時エラーは通常運用で起きる
-            print(f"\nstream error: {e} -> reconnect in {backoff:.1f}s")
+            print(f"\n[error] stream error: {e} -> reconnect in {backoff:.1f}s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30.0)
 
     sock_vis.close()
 
-
-# =========================
-# エントリポイント
-# =========================
 
 async def main():
     _install_signal_handlers()
@@ -237,10 +274,8 @@ async def main():
         print("Connecting to SSE stream...")
         task = asyncio.create_task(sse_consume(SSE_URL, session))
 
-        # Ctrl+C 等で _stop_event が立つのを待つ
         await _stop_event.wait()
 
-        # 終了処理
         task.cancel()
         try:
             await task
@@ -254,6 +289,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # 念のため（signalで拾えない環境対策）
         save_on_exit()
         sys.exit(0)

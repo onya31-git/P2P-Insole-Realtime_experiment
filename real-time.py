@@ -22,7 +22,6 @@ import warnings
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 
-
 # ==========================
 #  設定
 # ==========================
@@ -132,9 +131,9 @@ def build_window_dataframe(buffer_list):
 
 
 def transform_realtime_window(pressure_df, rotation_df, accel_df):
-    pressure_df = pressure_df.fillna(0.0)
-    rotation_df = rotation_df.fillna(0.0)
-    accel_df = accel_df.fillna(0.0)
+    pressure_df = pressure_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    rotation_df = rotation_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    accel_df = accel_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     pressure_smooth = pressure_df.rolling(
         window=SMOOTH_WINDOW, min_periods=1, center=False
@@ -284,8 +283,15 @@ def run_realtime_skeleton_estimation():
             data, addr = sock.recvfrom(4096)
             data_l, data_r = pickle.loads(data)
 
-            parsed_l = sensor.parse_sensor_data(data_l)
-            parsed_r = sensor.parse_sensor_data(data_r)
+            if isinstance(data_l, bytes):
+                parsed_l = sensor.parse_sensor_data(data_l)
+            else:
+                parsed_l = data_l
+
+            if isinstance(data_r, bytes):
+                parsed_r = sensor.parse_sensor_data(data_r)
+            else:
+                parsed_r = data_r
 
             if not (parsed_l and parsed_r):
                 continue
@@ -339,6 +345,11 @@ def run_realtime_skeleton_estimation():
             with torch.no_grad():
                 pred_skeleton = model(seq_tensor)  # (1, num_joints, 3)
                 pred_skeleton_np = pred_skeleton.squeeze(0).cpu().numpy()
+
+                if np.isnan(pred_skeleton_np).any():
+                    print("Warning: 推定結果に NaN が含まれています。スキップします。")
+                    continue
+
                 mn = float(pred_skeleton_np.min())
                 mx = float(pred_skeleton_np.max())
                 mean = float(pred_skeleton_np.mean())
@@ -365,10 +376,9 @@ def run_realtime_skeleton_estimation():
 if __name__ == "__main__":
     # 可視化スレッドを起動
     vis_thread = threading.Thread(
-        target=skeleton_visualization_thread, daemon=True
+        target=skeleton_visualization_thread, daemon=True 
     )
     vis_thread.start()
 
     # メイン処理
     run_realtime_skeleton_estimation()
-

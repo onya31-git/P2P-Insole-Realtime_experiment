@@ -2,6 +2,7 @@ import socket
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
+import pickle
 import sensor
 
 row = 7
@@ -36,13 +37,17 @@ if __name__ == "__main__":
     counter = 0
 
     while True:
-        data, addr = sock.recvfrom(1024)  # 缓冲区大小为1024字节
-        sensor_data = sensor.parse_sensor_data(data)
-        pressure_sensors = sensor_data.pressure_sensors
-        #print(pressure_sensors)
+        data, addr = sock.recvfrom(4096)  # 缓冲区大小为1024字节
+        try:
+            sensor_data_left, _ = pickle.loads(data)
+            pressure_sensors = sensor_data_left.pressure_sensors
+        except (pickle.UnpicklingError, IndexError, AttributeError):
+            continue
+
         if counter % 40 == 0:
             # 先 reshape 成 (row, col)，然后左右翻转
-            reshaped = np.reshape(pressure_sensors, (row, col))
-            mirrored = np.fliplr(reshaped)   # 左右镜像
-            update_heatmap(mirrored)
+            if len(pressure_sensors) == row * col:
+                reshaped = np.reshape(pressure_sensors, (row, col))
+                mirrored = np.fliplr(reshaped)   # 左右镜像
+                update_heatmap(mirrored)
         counter += 1
