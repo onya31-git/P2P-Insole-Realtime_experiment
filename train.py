@@ -25,35 +25,34 @@ STRIDE = 1
 VAL_RATIO = 0.2
 
 DATA_FILE_PAIRS = [
-    ## test3 体の傾け
-    # (
+    # test3 体の傾け
+    (
     #     './data/20250518test3/Opti-track/kari/Take 2024-11-15 03.31.59 PM.csv',
-    #      './rawData/20241115test3/InsoleSensor/20241115_153700_left.csv',
-    #      './rawData/20241115test3/InsoleSensor/20241115_153700_right.csv',
-    # ),
-
+    #      './data/20250518test3/InsoleSensor/3_final/20241115_153700_left.csv',
+    #      './data/20250518test3/InsoleSensor/3_final/20241115_153700_right.csv',
+    # ) ,
 
     # test 4
-    (   # s1
-        './data/training_data/Skeleton/T004S001_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_152700_right.csv',
-    ),( 
-        # s2
-        './data/training_data/Skeleton/T004S002_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_160501_right.csv',
-    ),(  
+    #(     # s1
+        # './data/training_data/Skeleton/T004S001_skeleton.csv',
+        # './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_l.csv',
+        # './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_r.csv', 
+    # ),( 
+    #     # s2
+        # './data/training_data/Skeleton/T004S002_skeleton.csv',
+        # './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_l.csv',
+        # './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_r.csv', 
+    # ),(  
         # s3
         './data/training_data/Skeleton/T004S003_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_164800_right.csv',
+        './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_l.csv',
+        './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_r.csv',
     ),(
         # s4
         './data/training_data/Skeleton/T004S004_skeleton.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_left.csv',
-        './rawData/20241212test4/InsoleSensor/no_caliblation/20241212_173800_right.csv',
-    ),
+        './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_l.csv',
+        './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_r.csv'
+    # ),
 
     # # 新データ(test5) 
     # (   # s1
@@ -95,7 +94,7 @@ DATA_FILE_PAIRS = [
     #     './data/training_data/Skeleton/T005S007_skeleton.csv',
     #     './rawData/20250529test5/Insole_0530/original/20250530_141453_left.csv',
     #     './rawData/20250529test5/Insole_0530/original/20250530_141453_right.csv',
-    # )
+    )
 ]
 
 def verify_dependencies():
@@ -157,9 +156,16 @@ def preprocess_pressure_data(left_data, right_data):
     accel_combined = pd.concat([left_accel, right_accel], axis=1)
 
     # NaN値を補正
-    pressure_combined = pressure_combined.fillna(0.0)
-    rotation_combined = rotation_combined.fillna(0.0)
-    accel_combined = accel_combined.fillna(0.0)
+    pressure_combined = pressure_combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    rotation_combined = rotation_combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    accel_combined = accel_combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    # 定数値（分散が0）の列が存在する場合、MinMaxScalerでNaNが発生する可能性があるため、
+    # 非常に小さなノイズを加えるか、定数列として扱う。
+    # ここでは安全のため、全てのデータに極小のノイズ(1e-6)を加えてゼロ除算を防ぐ
+    pressure_combined += np.random.normal(0, 1e-6, pressure_combined.shape)
+    rotation_combined += np.random.normal(0, 1e-6, rotation_combined.shape)
+    accel_combined += np.random.normal(0, 1e-6, accel_combined.shape)
 
     print("Checking pressure data for NaN or Inf...")
     print("Pressure NaN count:", pressure_combined.isna().sum().sum())
@@ -299,6 +305,17 @@ def main():
     # テスト4データのために一時的に追加
     skeleton_data = skeleton_data.fillna(method='bfill').fillna(method='ffill')
 
+    # ---------------------------------------------------------
+    # 異常データの除去 (T004S003のZ.41のような、ほぼ全欠損データの対策)
+    # ---------------------------------------------------------
+    # 補間後もNaNが残っている場合（全行NaNの列など）、または
+    # 補間によって定数値で埋められた列が学習に悪影響を与えるのを防ぐため、
+    # 本来はここで「分散が極端に小さいスケルトン列」を警告すべきですが、
+    # 最低限、NaNが残っている場合は0で埋めるかエラーにする
+    if skeleton_data.isna().sum().sum() > 0:
+        print(f"Warning: {skeleton_data.isna().sum().sum()} NaNs remaining in skeleton data. Filling with 0.")
+        skeleton_data = skeleton_data.fillna(0.0)
+
     # numpy配列に変換
     skeleton_data = skeleton_data.to_numpy()
 
@@ -376,10 +393,11 @@ def main():
 
     # 損失関数、オプティマイザ、スケジューラの設定
     # criterion = torch.nn.MSELoss()  # 必要に応じてカスタム損失関数に変更可能
-    criterion = EnhancedSkeletonLoss(alpha=1.0, beta=0.1)
+    # バッチ内シャッフルにより時系列性が失われているため、motion/accel loss (beta) は無効化(0.0)推奨
+    criterion = EnhancedSkeletonLoss(alpha=1.0, beta=0.0)
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=0.0005,
+        lr=0.0001,
         weight_decay=0.001,
         betas=(0.9, 0.999)
     )
