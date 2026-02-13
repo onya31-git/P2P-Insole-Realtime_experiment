@@ -27,73 +27,73 @@ VAL_RATIO = 0.2
 DATA_FILE_PAIRS = [
     # test3 体の傾け
     (
-    #     './data/20250518test3/Opti-track/kari/Take 2024-11-15 03.31.59 PM.csv',
-    #      './data/20250518test3/InsoleSensor/3_final/20241115_153700_left.csv',
-    #      './data/20250518test3/InsoleSensor/3_final/20241115_153700_right.csv',
+        './data/20250518test3/Opti-track/kari/Take 2024-11-15 03.31.59 PM.csv',
+         './data/20250518test3/InsoleSensor/3_final/20241115_153700_left.csv',
+         './data/20250518test3/InsoleSensor/3_final/20241115_153700_right.csv',
     # ) ,
 
     # test 4
     #(     # s1
-        # './data/training_data/Skeleton/T004S001_skeleton.csv',
-        # './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_l.csv',
-        # './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_r.csv', 
+    #     './data/training_data/Skeleton/T004S001_skeleton.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_l.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S001_Insole_r.csv', 
     # ),( 
     #     # s2
-        # './data/training_data/Skeleton/T004S002_skeleton.csv',
-        # './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_l.csv',
-        # './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_r.csv', 
+    #     './data/training_data/Skeleton/T004S002_skeleton.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_l.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S002_Insole_r.csv', 
     # ),(  
-        # s3
-        './data/training_data/Skeleton/T004S003_skeleton.csv',
-        './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_l.csv',
-        './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_r.csv',
-    ),(
-        # s4
-        './data/training_data/Skeleton/T004S004_skeleton.csv',
-        './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_l.csv',
-        './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_r.csv'
+    #     #s3
+    #     './data/training_data/Skeleton/T004S003_skeleton.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_l.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S003_Insole_r.csv',
+    # ),(
+    #     #s4
+    #     './data/training_data/Skeleton/T004S004_skeleton.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_l.csv',
+    #     './data/20250518test4/InsoleSensor/3_final/T004S004_Insole_r.csv'
     # ),
 
     # # 新データ(test5) 
     # (   # s1
     #     './data/training_data/Skeleton/T005S001_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_135111_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_135111_right.csv',
+    #     './data/training_data/Insole/T005S001_Insole_l.csv',
+    #     './data/training_data/Insole/T005S001_Insole_r.csv',
     # ),( 
     #     # s2
     #     './data/training_data/Skeleton/T005S002_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_143200_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_143200_right.csv',
+    #     './data/training_data/Insole/T005S002_Insole_l.csv',
+    #     './data/training_data/Insole/T005S002_Insole_r.csv',
     # ),(  
     #     # s3
     #     './data/training_data/Skeleton/T005S003_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_150203_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_150203_right.csv',
+    #     './data/training_data/Insole/T005S003_Insole_l.csv',
+    #     './data/training_data/Insole/T005S003_Insole_r.csv',
     # ),(
     #     # s4
     #     './data/training_data/Skeleton/T005S004_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_155853_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_155853_right.csv',
+    #     './data/training_data/Insole/T005S004_Insole_l.csv',
+    #     './data/training_data/Insole/T005S004_Insole_r.csv',
     # ),(
     #     # s5
     #     './data/training_data/Skeleton/T005S005_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_165625_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_165625_right.csv',
+    #     './data/training_data/Insole/T005S005_Insole_l.csv',
+    #     './data/training_data/Insole/T005S005_Insole_r.csv', 
     # ),(
     #     # s6
     #     './data/training_data/Skeleton/T005S006_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_175456_left.csv',
-    #     './rawData/20250529test5/Insole_0529/original/20250529_175456_right.csv',
+    #     './data/training_data/Insole/T005S006_Insole_l.csv',
+    #     './data/training_data/Insole/T005S006_Insole_r.csv', 
     # ),(
     #     # s7
     #     './data/training_data/Skeleton/T005S007_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0530/original/20250530_133724_left.csv',
-    #     './rawData/20250529test5/Insole_0530/original/20250530_133724_right.csv',
+    #     './data/training_data/Insole/T005S007_Insole_l.csv',
+    #     './data/training_data/Insole/T005S007_Insole_r.csv',
     # ),(
     #     # s8
-    #     './data/training_data/Skeleton/T005S007_skeleton.csv',
-    #     './rawData/20250529test5/Insole_0530/original/20250530_141453_left.csv',
-    #     './rawData/20250529test5/Insole_0530/original/20250530_141453_right.csv',
+    #     './data/test_data/Skeleton/T005S008_skeleton.csv',
+    #     './data/test_data/Insole/T005S008_Insole_l.csv',
+    #     './data/test_data/Insole/T005S008_Insole_r.csv',
     )
 ]
 
@@ -350,7 +350,7 @@ def main():
     input_dim = input_features.shape[1]  # 圧力+回転+加速度の合計次元数
     d_model = 512
     num_layers = 4          # LSTM の層数（お好みで調整。元の num_encoder_layers を流用してもOK）
-    num_joints = 21         # skeleton_data.shape[1] // 3  # 3D座標なので3で割る
+    # num_joints = 21         # skeleton_data.shape[1] // 3  # 3D座標なので3で割る (データから計算した値を使用するためコメントアウト)
     dropout = 0.2
     batch_size = 32
 
