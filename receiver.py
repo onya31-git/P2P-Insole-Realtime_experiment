@@ -152,7 +152,7 @@ def save_on_exit():
     file_name_l = exp_name + str(now.strftime("%Y%m%d_%H%M%S") + "_left" + ".csv")
     file_name_r = exp_name + str(now.strftime("%Y%m%d_%H%M%S") + "_right" + ".csv")
 
-    print(f"\nExiting gracefully. Sensor data saved to {file_name_l}, {fe_name_r}.")
+    print(f"\nExiting gracefully. Sensor data saved to {file_name_l}, {file_name_r}.")
     sensor.save_sensor_data_to_csv(data_list_l, file_name_l)
     sensor.save_sensor_data_to_csv(data_list_r, file_name_r)
 
