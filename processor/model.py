@@ -1,5 +1,5 @@
+# model.py
 # 深層学習モデルを構築するファイル
-#
 #
 # 
 #
@@ -79,31 +79,81 @@ class LSTMSkeletonRegressor(nn.Module):
 
         return out
 
+# 1DCNN予測モデルの作成
+class CNN1DSkeletonRegressor(nn.Module):
+    """
+    1D-CNN (Temporal Conv) で (seq_len, input_dim) → (num_joints, num_dims) を回帰
+    入力:  x (batch, seq_len, input_dim)
+    出力:  (batch, num_joints, num_dims)
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        num_joints: int,
+        num_dims: int = 3,
+        channels: int = 128,
+        num_blocks: int = 4,
+        kernel_size: int = 5,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.num_joints = num_joints
+        self.num_dims = num_dims
 
-# puさんのTransformerモデル(分類問題用のモデルのため、骨格推定には使用することができない。)
-class TimeSeriesTransformerClassifier(nn.Module):
-    def __init__(self, input_dim, d_model, nhead, num_layers, dim_feedforward, static_input_dim, num_classes):
-        super(TimeSeriesTransformerClassifier, self).__init__()
-        self.input_projection = nn.Linear(input_dim, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.static_fc = nn.Linear(static_input_dim, d_model)
-        self.fc = nn.Linear(d_model * 2, num_classes)
-        self.dropout = nn.Dropout(0.1)
+        # (batch, input_dim, seq_len) を想定して Conv
+        padding = kernel_size // 2
 
-    def forward(self, x, static_params, attention_mask=None):
-        x = self.input_projection(x)
-        x = x.permute(1, 0, 2)  # (seq_length, batch_size, d_model)
-        if attention_mask is not None:
-            src_key_padding_mask = attention_mask == 0
-        else:
-            src_key_padding_mask = None
-        transformer_output = self.dropout(self.transformer_encoder(x, src_key_padding_mask=src_key_padding_mask))
-        features = transformer_output[-1, :, :]  # 使用最后一个时间步
-        static_features = self.static_fc(static_params)
-        combined_features = torch.cat((features, static_features), dim=1)
-        logits = self.fc(combined_features)
-        return logits
+        self.stem = nn.Sequential(
+            nn.Conv1d(input_dim, channels, kernel_size=kernel_size, padding=padding),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+
+        blocks = []
+        for _ in range(num_blocks):
+            blocks.append(self._make_block(channels, kernel_size, dropout))
+        self.blocks = nn.Sequential(*blocks)
+
+        # 時間方向を潰す（Global Average Pooling）
+        self.pool = nn.AdaptiveAvgPool1d(1)
+
+        self.head = nn.Sequential(
+            nn.Linear(channels, channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(channels, num_joints * num_dims),
+        )
+
+    def _make_block(self, channels: int, kernel_size: int, dropout: float):
+        padding = kernel_size // 2
+        return nn.Sequential(
+            nn.Conv1d(channels, channels, kernel_size=kernel_size, padding=padding),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Conv1d(channels, channels, kernel_size=kernel_size, padding=padding),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (batch, seq_len, input_dim)
+        """
+        if x.dim() == 2:
+            # (batch, input_dim) が来たら seq_len=1 として扱う
+            x = x.unsqueeze(1)
+
+        # (batch, seq_len, input_dim) -> (batch, input_dim, seq_len)
+        x = x.transpose(1, 2)
+
+        x = self.stem(x)
+        x = self.blocks(x)
+
+        # (batch, channels, 1)
+        x = self.pool(x).squeeze(-1)  # (batch, channels)
+
+        out = self.head(x)  # (batch, num_joints*num_dims)
+        out = out.view(out.size(0), self.num_joints, self.num_dims)
+        return out
     
 class EnhancedSkeletonLoss(nn.Module):
     def __init__(self, alpha=1.0, beta=0.1):

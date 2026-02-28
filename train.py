@@ -1,4 +1,4 @@
-# メモ
+# train.py
 # window sizeが調整されていない問題を修正する必要あり
 #
 
@@ -9,17 +9,12 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from processor.model import LSTMSkeletonRegressor, EnhancedSkeletonLoss, train_model
+from processor.model import LSTMSkeletonRegressor, CNN1DSkeletonRegressor, EnhancedSkeletonLoss, train_model
 from processor.dataLoader import PressureSkeletonDataset
 from pathlib import Path
 import importlib.util
 from importlib import import_module
 
-pd = None
-np = None
-train_test_split = None
-MinMaxScaler = None
-StandardScaler = None
 SEQ_LEN = 100
 STRIDE = 1
 VAL_RATIO = 0.2
@@ -381,77 +376,91 @@ def main():
     print("Train skeleton NaN count:", np.isnan(train_skeleton).sum(), "Inf count:", np.isinf(train_skeleton).sum())
 
 
-    # モデルの初期化
-    model = LSTMSkeletonRegressor(
-        input_dim=input_dim,
-        d_model=d_model,
-        num_layers=num_layers,
-        num_joints=num_joints,
-        num_dims=3,
-        dropout=dropout,
-    ).to(device)
+    
+    # =========================
+    # モデル設定（LSTM/CNN1D 共通）
+    # =========================
 
-    # 損失関数、オプティマイザ、スケジューラの設定
-    # criterion = torch.nn.MSELoss()  # 必要に応じてカスタム損失関数に変更可能
-    # バッチ内シャッフルにより時系列性が失われているため、motion/accel loss (beta) は無効化(0.0)推奨
-    criterion = EnhancedSkeletonLoss(alpha=1.0, beta=0.0)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=0.0001,
-        weight_decay=0.001,
-        betas=(0.9, 0.999)
-    )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        factor=0.5,
-        patience=5,
-        # verbose=True
-    )
+    # ここでモデルを変更
+    ARCH = "cnn1d"  # "lstm" or "cnn1d"
 
     model_config = {
-    'model_type': 'lstm',
-    'input_dim': input_dim,
-    'd_model': d_model,
-    'num_layers': num_layers,
-    'num_joints': num_joints,
-    'num_dims': 3,
-    'dropout': dropout,
-    'seq_len': SEQ_LEN,
-}
-    
-    # トレーニング実行
-    train_model(
-    model,
-    train_loader,
-    val_loader,
-    criterion,
-    optimizer,
-    scheduler,
-    num_epochs=100,
-    save_path=str(best_checkpoint_path),
-    device=device,
-    sensor_scalers=sensor_scalers,
-    model_config=model_config,
-)
+        "arch": ARCH,
+        "input_dim": input_dim,
+        "num_joints": num_joints,
+        "num_dims": 3,
+        "seq_len": SEQ_LEN,
 
-    # モデルの保存
-    final_checkpoint = {
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'sensor_scalers': sensor_scalers,
-        'model_config': {
-            'model_type': 'lstm',
-            'input_dim': input_dim,
-            'd_model': d_model,
-            'num_layers': num_layers,
-            'num_joints': num_joints,
-            'num_dims': 3,
-            'dropout': dropout,
-        }
+        # LSTM用（cnn1d の時は参照されません）
+        "d_model": d_model,
+        "num_layers": num_layers,
+
+        # CNN1D用
+        "channels": 128,
+        "num_blocks": 4,
+        "kernel_size": 5,
+
+        "dropout": dropout,
     }
-    torch.save(final_checkpoint, final_checkpoint_path)
+
+    # =========================
+    # モデルの初期化（archで分岐）
+    # =========================
+    if model_config["arch"] == "lstm":
+        model = LSTMSkeletonRegressor(
+            input_dim=model_config["input_dim"],
+            d_model=model_config["d_model"],
+            num_layers=model_config["num_layers"],
+            num_joints=model_config["num_joints"],
+            num_dims=model_config["num_dims"],
+            dropout=model_config["dropout"],
+        ).to(device)
+
+    elif model_config["arch"] == "cnn1d":
+        model = CNN1DSkeletonRegressor(
+            input_dim=model_config["input_dim"],
+            num_joints=model_config["num_joints"],
+            num_dims=model_config["num_dims"],
+            channels=int(model_config.get("channels", 128)),
+            num_blocks=int(model_config.get("num_blocks", 4)),
+            kernel_size=int(model_config.get("kernel_size", 5)),
+            dropout=float(model_config.get("dropout", 0.2)),
+        ).to(device)
+
+    else:
+        raise ValueError(f"Unknown arch: {model_config['arch']}")
+
+    # =========================
+    # 学習の実行
+    # =========================
+    # 損失関数、オプティマイザ、スケジューラの定義
+    # Note: EnhancedSkeletonLossは時系列の連続性を仮定しますが、DataLoader(shuffle=True)では
+    # バッチ内の順序がランダムになるため、ここでは標準的なMSELossを使用します。
+    criterion = torch.nn.MSELoss()
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=5
+    )
+
+    num_epochs = 50
+    save_path = output_dir / f"best_skeleton_{ARCH}.pth"
+
+    print(f"Start training with arch={ARCH}...")
+    train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        num_epochs=num_epochs,
+        save_path=save_path,
+        device=device,
+        sensor_scalers=sensor_scalers,
+        model_config=model_config
+    )
 
 
 if __name__ == "__main__":

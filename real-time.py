@@ -16,7 +16,7 @@ import torch
 import open3d as o3d
 
 import sensor  # センサパーサ
-from processor.model import LSTMSkeletonRegressor
+from processor.model import LSTMSkeletonRegressor, CNN1DSkeletonRegressor
 
 import warnings
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
@@ -29,14 +29,14 @@ warnings.filterwarnings("ignore", message="X does not have valid feature names")
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 53000
 
-CHECKPOINT_PATH = "./weight/best_skeleton_LSTM_test5.pth"
+CHECKPOINT_PATH = "./weight/best_skeleton_cnn1d.pth"
 
 MAX_BUFFER_LEN = 10000
 SMOOTH_WINDOW = 3
 
 JOINT_CONNECTIONS = [
-        (0, 1), (1, 2), (2, 3), (3, 4),                                           # 脊椎         # 左右で分けて細かく改行する
-        (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12), (5, 9),             # 手、肘、肩    # 左右で分けて細かく改行する
+        (0, 1), (1, 2), (2, 3), (3, 4),                                         # 脊椎          # 左右で分けて細かく改行する
+        (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12), (5, 9),            # 手、肘、肩    # 左右で分けて細かく改行する
         (13, 14), (14, 15), (15, 16), (17, 18), (18, 19), (19, 20), (13, 17)    # 足、腰        # 左右で分けて細かく改行する
     ]
 
@@ -54,23 +54,37 @@ if "model_config" not in ckpt:
 
 model_cfg = ckpt["model_config"]
 input_dim = model_cfg["input_dim"]
-d_model = model_cfg["d_model"]
-num_layers = model_cfg["num_layers"]
 num_joints = model_cfg["num_joints"]
 num_dims = model_cfg["num_dims"]
 dropout = model_cfg["dropout"]
+arch = model_cfg.get("arch", "lstm")
 
 print("Loaded model config:")
 print(model_cfg)
 
-model = LSTMSkeletonRegressor(
-    input_dim=input_dim,
-    d_model=d_model,
-    num_layers=num_layers,
-    num_joints=num_joints,
-    num_dims=num_dims,
-    dropout=dropout,
-).to(device)
+if arch == "lstm":
+    d_model = model_cfg["d_model"]
+    num_layers = model_cfg["num_layers"]
+    model = LSTMSkeletonRegressor(
+        input_dim=input_dim,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_joints=num_joints,
+        num_dims=num_dims,
+        dropout=dropout,
+    ).to(device)
+elif arch == "cnn1d":
+    model = CNN1DSkeletonRegressor(
+        input_dim=input_dim,
+        num_joints=num_joints,
+        num_dims=num_dims,
+        channels=int(model_cfg.get("channels", 128)),
+        num_blocks=int(model_cfg.get("num_blocks", 4)),
+        kernel_size=int(model_cfg.get("kernel_size", 5)),
+        dropout=dropout,
+    ).to(device)
+else:
+    raise ValueError(f"Unknown architecture: {arch}")
 
 model.load_state_dict(ckpt["model_state_dict"])
 model.eval()
@@ -217,7 +231,7 @@ skeleton_lock = threading.Lock()
 stop_event = threading.Event()
 
 
-def skeleton_visualization_thread():
+def main_visualization_loop():
     global latest_skeleton
 
     vis = o3d.visualization.Visualizer()
@@ -250,6 +264,10 @@ def skeleton_visualization_thread():
                 skel = None if latest_skeleton is None else latest_skeleton.copy()
 
             if skel is not None:
+                # 【修正】ルート関節(index 0)を原点に固定して、移動による見切れを防ぐ
+                root_pos = skel[0].copy()
+                skel = skel - root_pos
+
                 points.points = o3d.utility.Vector3dVector(skel)
                 lines.points  = o3d.utility.Vector3dVector(skel)
 
@@ -273,14 +291,15 @@ def skeleton_visualization_thread():
 #  メインループ
 # ==========================
 
-def run_realtime_skeleton_estimation():
+def inference_loop():
     global latest_skeleton
 
     data_buffer = deque(maxlen=MAX_BUFFER_LEN)
 
     try:
         while True:
-            data, addr = sock.recvfrom(4096)
+            # バッファサイズを拡大 (4096 -> 16384) してデータ切れを防ぐ
+            data, addr = sock.recvfrom(16384)
             data_l, data_r = pickle.loads(data)
 
             if isinstance(data_l, bytes):
@@ -323,6 +342,8 @@ def run_realtime_skeleton_estimation():
             data_buffer.append(data_row)
 
             if len(data_buffer) < SEQ_LEN:
+                if len(data_buffer) % 10 == 0:
+                    print(f"\rBuffering... {len(data_buffer)}/{SEQ_LEN}", end="")
                 continue
 
             window_list = list(data_buffer)[-SEQ_LEN:]
@@ -374,11 +395,11 @@ def run_realtime_skeleton_estimation():
 
 
 if __name__ == "__main__":
-    # 可視化スレッドを起動
-    vis_thread = threading.Thread(
-        target=skeleton_visualization_thread, daemon=True 
+    # 推論処理をサブスレッド（デーモン）で起動
+    inf_thread = threading.Thread(
+        target=inference_loop, daemon=True 
     )
-    vis_thread.start()
+    inf_thread.start()
 
-    # メイン処理
-    run_realtime_skeleton_estimation()
+    # 可視化処理をメインスレッドで実行 (Open3Dの制約)
+    main_visualization_loop()
